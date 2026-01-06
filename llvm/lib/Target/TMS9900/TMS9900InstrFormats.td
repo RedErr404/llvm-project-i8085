@@ -306,8 +306,9 @@ class Format1_SymLoad<bits<4> opcode, bit byteflag, dag outs, dag ins,
   bits<4> rd;     // Destination register
   bits<16> addr;  // Memory address
 
-  bits<16> Inst;
+  bits<32> Inst;
 
+  // First word: opcode + addressing modes
   let Inst{15-13} = opcode{3-1};
   let Inst{12} = byteflag;
   // Destination operand (Td=00 for register direct)
@@ -316,6 +317,8 @@ class Format1_SymLoad<bits<4> opcode, bit byteflag, dag outs, dag ins,
   // Source operand (Ts=10, S=0 for symbolic addressing)
   let Inst{5-4} = 0b10;       // Ts = symbolic/indexed
   let Inst{3-0} = 0b0000;     // S = 0 for symbolic
+  // Second word: address
+  let Inst{31-16} = addr;
 
   let Size = 4;  // Two words (instruction + address)
 }
@@ -327,8 +330,9 @@ class Format1_SymStore<bits<4> opcode, bit byteflag, dag outs, dag ins,
   bits<16> addr;  // Memory address
   bits<4> rs;     // Source register
 
-  bits<16> Inst;
+  bits<32> Inst;
 
+  // First word: opcode + addressing modes
   let Inst{15-13} = opcode{3-1};
   let Inst{12} = byteflag;
   // Destination operand (Td=10, D=0 for symbolic addressing)
@@ -337,6 +341,8 @@ class Format1_SymStore<bits<4> opcode, bit byteflag, dag outs, dag ins,
   // Source operand (Ts=00 for register direct)
   let Inst{5-4} = 0b00;       // Ts = register direct
   let Inst{3-0} = rs;         // S = source register
+  // Second word: address
+  let Inst{31-16} = addr;
 
   let Size = 4;  // Two words (instruction + address)
 }
@@ -387,8 +393,9 @@ class Format1_IdxLoad<bits<4> opcode, bit byteflag, dag outs, dag ins,
   bits<4> ri;     // Index register (1-15, not 0)
   bits<16> offset;// Offset
 
-  bits<16> Inst;
+  bits<32> Inst;
 
+  // First word: opcode + addressing modes
   let Inst{15-13} = opcode{3-1};
   let Inst{12} = byteflag;
   // Destination operand (Td=00 for register direct)
@@ -397,6 +404,8 @@ class Format1_IdxLoad<bits<4> opcode, bit byteflag, dag outs, dag ins,
   // Source operand (Ts=10 for indexed, S=index register)
   let Inst{5-4} = 0b10;       // Ts = symbolic/indexed
   let Inst{3-0} = ri;         // S = index register
+  // Second word: offset
+  let Inst{31-16} = offset;
 
   let Size = 4;  // Two words (instruction + offset)
 }
@@ -409,8 +418,9 @@ class Format1_IdxStore<bits<4> opcode, bit byteflag, dag outs, dag ins,
   bits<16> offset;// Offset
   bits<4> rs;     // Source register
 
-  bits<16> Inst;
+  bits<32> Inst;
 
+  // First word: opcode + addressing modes
   let Inst{15-13} = opcode{3-1};
   let Inst{12} = byteflag;
   // Destination operand (Td=10 for indexed, D=index register)
@@ -419,6 +429,8 @@ class Format1_IdxStore<bits<4> opcode, bit byteflag, dag outs, dag ins,
   // Source operand (Ts=00 for register direct)
   let Inst{5-4} = 0b00;       // Ts = register direct
   let Inst{3-0} = rs;         // S = source register
+  // Second word: offset
+  let Inst{31-16} = offset;
 
   let Size = 4;  // Two words (instruction + offset)
 }
