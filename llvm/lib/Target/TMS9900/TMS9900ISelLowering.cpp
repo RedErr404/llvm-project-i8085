@@ -414,32 +414,31 @@ SDValue TMS9900TargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
   if (LD->getAddressingMode() != ISD::UNINDEXED)
     return SDValue();
 
-  // Handle i8 loads
+  // Handle i8 loads - TMS9900 MOVB loads into HIGH byte of register
   if (LD->getMemoryVT() == MVT::i8) {
     SDValue Chain = LD->getChain();
     SDValue Ptr = LD->getBasePtr();
     ISD::LoadExtType ExtType = LD->getExtensionType();
 
-    // TMS9900 MOVB loads a byte into the HIGH 8 bits of a register.
-    // We need to shift right by 8 to move it to the LOW byte position.
-    SDValue NewLoad = DAG.getExtLoad(
-        ExtType == ISD::NON_EXTLOAD ? ISD::EXTLOAD : ExtType,
-        DL, MVT::i16, Chain, Ptr, LD->getPointerInfo(),
-        MVT::i8, LD->getOriginalAlign(), LD->getMemOperand()->getFlags());
+    // Create our custom BYTE_LOAD node - will be matched to MOVB
+    // MOVB loads byte into HIGH byte position
+    SDValue ByteLoad = DAG.getNode(TMS9900ISD::BYTE_LOAD, DL,
+                                   DAG.getVTList(MVT::i16, MVT::Other),
+                                   Chain, Ptr);
 
     // Shift right by 8 to move byte from HIGH to LOW position
     SDValue ShiftAmt = DAG.getConstant(8, DL, MVT::i16);
     SDValue ShiftedVal;
     if (ExtType == ISD::SEXTLOAD) {
       // Arithmetic shift for sign extension
-      ShiftedVal = DAG.getNode(ISD::SRA, DL, MVT::i16, NewLoad, ShiftAmt);
+      ShiftedVal = DAG.getNode(ISD::SRA, DL, MVT::i16, ByteLoad, ShiftAmt);
     } else {
-      // Logical shift for zero extension
-      ShiftedVal = DAG.getNode(ISD::SRL, DL, MVT::i16, NewLoad, ShiftAmt);
+      // Logical shift for zero extension (also for EXTLOAD and NON_EXTLOAD)
+      ShiftedVal = DAG.getNode(ISD::SRL, DL, MVT::i16, ByteLoad, ShiftAmt);
     }
 
     // Return both the shifted value and the chain
-    SDValue Results[] = {ShiftedVal, NewLoad.getValue(1)};
+    SDValue Results[] = {ShiftedVal, ByteLoad.getValue(1)};
     return DAG.getMergeValues(Results, DL);
   }
 

@@ -79,6 +79,14 @@ def TMS9900bytestore : SDNode<"TMS9900ISD::BYTE_STORE",
                               SDTypeProfile<0, 2, [SDTCisVT<0, i16>, SDTCisPtrTy<1>]>,
                               [SDNPHasChain, SDNPMayStore, SDNPMemOperand]>;
 
+// Byte load node - loads byte into HIGH byte position of i16 register
+// TMS9900 MOVB loads into HIGH byte. After matching this to MOVB,
+// we shift right by 8 to move byte to LOW position.
+// (TMS9900byteload chain, ptr) -> (value, chain)
+def TMS9900byteload : SDNode<"TMS9900ISD::BYTE_LOAD",
+                             SDTypeProfile<1, 1, [SDTCisVT<0, i16>, SDTCisPtrTy<1>]>,
+                             [SDNPHasChain, SDNPMayLoad, SDNPMemOperand]>;
+
 //===----------------------------------------------------------------------===//
 // AsmOperandClass Definitions (for AsmParser)
 //===----------------------------------------------------------------------===//
@@ -303,27 +311,29 @@ def MOV_FI_Store : TMS9900Inst<(outs), (ins GR16:$base, i16imm:$offset, GR16:$rs
 //===----------------------------------------------------------------------===//
 // Byte Memory Load Instructions (MOVB)
 // Note: Byte flag = 1, so opcode is 0b1101 for MOVB (vs 0b1100 for MOV)
+// MOVB loads byte into HIGH 8 bits of register. We use TMS9900byteload
+// which is created by LowerLOAD, then shifted right to move byte to LOW position.
 //===----------------------------------------------------------------------===//
 
-// MOVB *Rs,Rd - Load byte indirect (extending load)
-// Loads byte into upper 8 bits of register, clears lower 8 bits
+// MOVB *Rs,Rd - Load byte indirect
+// Loads byte into upper 8 bits of register
 def MOVBim : Format1_IndLoad<0b1100, 1, (outs GR16:$rd), (ins GR16:$rs),
                              "MOVB\t*$rs,$rd",
-                             [(set GR16:$rd, (extloadi8 GR16:$rs))]> {
+                             [(set GR16:$rd, (TMS9900byteload GR16:$rs))]> {
   let mayLoad = 1;
 }
 
-// MOVB @offset(Ri),Rd - Load byte indexed (extending load)
+// MOVB @offset(Ri),Rd - Load byte indexed
 def MOVBxm : Format1_IdxLoad<0b1100, 1, (outs GR16:$rd), (ins i16imm:$offset, GR16:$ri),
                              "MOVB\t@${offset}(${ri}),$rd",
-                             [(set GR16:$rd, (extloadi8 (add GR16:$ri, (i16 imm:$offset))))]> {
+                             [(set GR16:$rd, (TMS9900byteload (add GR16:$ri, (i16 imm:$offset))))]> {
   let mayLoad = 1;
 }
 
-// MOVB @addr,Rd - Load byte from absolute address (extending load)
+// MOVB @addr,Rd - Load byte from absolute address
 def MOVBam : Format1_SymLoad<0b1100, 1, (outs GR16:$rd), (ins i16imm:$addr),
                              "MOVB\t@$addr,$rd",
-                             [(set GR16:$rd, (extloadi8 (TMS9900Wrapper tglobaladdr:$addr)))]> {
+                             [(set GR16:$rd, (TMS9900byteload (TMS9900Wrapper tglobaladdr:$addr)))]> {
   let mayLoad = 1;
 }
 
