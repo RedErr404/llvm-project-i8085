@@ -94,7 +94,36 @@ MCOperand TMS9900MCInstLower::LowerOperand(const MachineOperand &MO,
 }
 
 void TMS9900MCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
-  OutMI.setOpcode(MI->getOpcode());
+  unsigned Opc = MI->getOpcode();
+
+  // Expand pseudo instructions to real instructions
+  switch (Opc) {
+  case TMS9900::MOV_FI_Store: {
+    // MOV_FI_Store: (ins GR16:$base, i16imm:$offset, GR16:$rs)
+    // -> MOVmx: (ins i16imm:$offset, GR16:$ri, GR16:$rs)
+    OutMI.setOpcode(TMS9900::MOVmx);
+    // Reorder operands: base(0), offset(1), rs(2) -> offset, base, rs
+    OutMI.addOperand(LowerOperand(MI->getOperand(1))); // offset
+    OutMI.addOperand(LowerOperand(MI->getOperand(0))); // base/ri
+    OutMI.addOperand(LowerOperand(MI->getOperand(2))); // rs
+    return;
+  }
+  case TMS9900::MOV_FI_Load: {
+    // MOV_FI_Load: (outs GR16:$rd), (ins GR16:$base, i16imm:$offset)
+    // -> MOVxm: (outs GR16:$rd), (ins i16imm:$offset, GR16:$ri)
+    OutMI.setOpcode(TMS9900::MOVxm);
+    // Reorder operands: rd(0), base(1), offset(2) -> rd, offset, base
+    OutMI.addOperand(LowerOperand(MI->getOperand(0))); // rd
+    OutMI.addOperand(LowerOperand(MI->getOperand(2))); // offset
+    OutMI.addOperand(LowerOperand(MI->getOperand(1))); // base/ri
+    return;
+  }
+  default:
+    break;
+  }
+
+  // Default: pass through opcode and operands
+  OutMI.setOpcode(Opc);
 
   for (const MachineOperand &MO : MI->operands()) {
     MCOperand MCOp = LowerOperand(MO);
