@@ -729,9 +729,10 @@ def BL_sym : TMS9900Inst<(outs), (ins calltarget:$target),
   bits<16> target;
   bits<32> Inst;
   // First word: opcode with symbolic addressing mode
-  let Inst{15-10} = 0b000001;  // BL opcode prefix
-  let Inst{9-4} = 0b101000;    // Symbolic addressing mode (Ts=10, S=0000)
-  let Inst{3-0} = 0b0000;
+  // BL opcode is 0000011010 (10 bits), then Ts=10, S=0000
+  let Inst{15-6} = 0b0000011010;  // BL opcode (10 bits)
+  let Inst{5-4} = 0b10;           // Ts = symbolic addressing
+  let Inst{3-0} = 0b0000;         // S = 0 (address follows)
   // Second word: target address
   let Inst{31-16} = target;
   let Size = 4;
@@ -746,9 +747,10 @@ def BL_ext : TMS9900Inst<(outs), (ins calltarget:$target),
   bits<16> target;
   bits<32> Inst;
   // First word: opcode with symbolic addressing mode
-  let Inst{15-10} = 0b000001;
-  let Inst{9-4} = 0b101000;
-  let Inst{3-0} = 0b0000;
+  // BL opcode is 0000011010 (10 bits), then Ts=10, S=0000
+  let Inst{15-6} = 0b0000011010;  // BL opcode (10 bits)
+  let Inst{5-4} = 0b10;           // Ts = symbolic addressing
+  let Inst{3-0} = 0b0000;         // S = 0 (address follows)
   // Second word: target address
   let Inst{31-16} = target;
   let Size = 4;

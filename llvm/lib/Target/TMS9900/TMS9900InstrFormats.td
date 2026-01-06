@@ -549,11 +549,11 @@ class Format8<bits<4> subop, dag outs, dag ins, string asmstr,
 
   bits<32> Inst;
 
-  // First word: 0000 0010 DDDD ssss
-  // where DDDD = register, ssss = sub-opcode
+  // First word: 0000 0010 ssss rrrr
+  // where ssss = sub-opcode, rrrr = register
   let Inst{15-8} = 0b00000010;  // Format 8 identifier
-  let Inst{7-4} = rd;
-  let Inst{3-0} = subop;
+  let Inst{7-4} = subop;
+  let Inst{3-0} = rd;
   // Second word
   let Inst{31-16} = imm;
 
@@ -570,10 +570,10 @@ class Format8_Cmp<bits<4> subop, dag outs, dag ins, string asmstr,
 
   bits<32> Inst;
 
-  // First word: 0000 0010 DDDD ssss
+  // First word: 0000 0010 ssss rrrr
   let Inst{15-8} = 0b00000010;  // Format 8 identifier
-  let Inst{7-4} = rs;
-  let Inst{3-0} = subop;
+  let Inst{7-4} = subop;
+  let Inst{3-0} = rs;
   // Second word
   let Inst{31-16} = imm;
 
