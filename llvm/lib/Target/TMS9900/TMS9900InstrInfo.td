@@ -71,6 +71,14 @@ def TMS9900selectcc : SDNode<"TMS9900ISD::SELECT_CC",
                                                   SDTCisSameAs<4, 5>]>,
                              [SDNPInGlue]>;
 
+// Byte store node - stores HIGH byte of i16 register to memory
+// TMS9900 MOVB uses the HIGH byte position, but LLVM uses LOW byte,
+// so we shift the value before creating this node.
+// (TMS9900bytestore chain, value, ptr)
+def TMS9900bytestore : SDNode<"TMS9900ISD::BYTE_STORE",
+                              SDTypeProfile<0, 2, [SDTCisVT<0, i16>, SDTCisPtrTy<1>]>,
+                              [SDNPHasChain, SDNPMayStore, SDNPMemOperand]>;
+
 //===----------------------------------------------------------------------===//
 // AsmOperandClass Definitions (for AsmParser)
 //===----------------------------------------------------------------------===//
@@ -323,25 +331,26 @@ def MOVBam : Format1_SymLoad<0b1100, 1, (outs GR16:$rd), (ins i16imm:$addr),
 // Byte Memory Store Instructions (MOVB)
 //===----------------------------------------------------------------------===//
 
-// MOVB Rs,*Rd - Store byte indirect (truncating store)
+// MOVB Rs,*Rd - Store byte indirect
 // Stores upper 8 bits of source register to memory
+// Uses TMS9900bytestore which expects byte in HIGH position
 def MOVBmi : Format1_IndStore<0b1100, 1, (outs), (ins GR16:$rd, GR16:$rs),
                               "MOVB\t$rs,*$rd",
-                              [(truncstorei8 GR16:$rs, GR16:$rd)]> {
+                              [(TMS9900bytestore GR16:$rs, GR16:$rd)]> {
   let mayStore = 1;
 }
 
-// MOVB Rs,@offset(Ri) - Store byte indexed (truncating store)
+// MOVB Rs,@offset(Ri) - Store byte indexed
 def MOVBmx : Format1_IdxStore<0b1100, 1, (outs), (ins i16imm:$offset, GR16:$ri, GR16:$rs),
                               "MOVB\t$rs,@${offset}(${ri})",
-                              [(truncstorei8 GR16:$rs, (add GR16:$ri, (i16 imm:$offset)))]> {
+                              [(TMS9900bytestore GR16:$rs, (add GR16:$ri, (i16 imm:$offset)))]> {
   let mayStore = 1;
 }
 
-// MOVB Rs,@addr - Store byte to absolute address (truncating store)
+// MOVB Rs,@addr - Store byte to absolute address
 def MOVBma : Format1_SymStore<0b1100, 1, (outs), (ins i16imm:$addr, GR16:$rs),
                               "MOVB\t$rs,@$addr",
-                              [(truncstorei8 GR16:$rs, (TMS9900Wrapper tglobaladdr:$addr))]> {
+                              [(TMS9900bytestore GR16:$rs, (TMS9900Wrapper tglobaladdr:$addr))]> {
   let mayStore = 1;
 }
 

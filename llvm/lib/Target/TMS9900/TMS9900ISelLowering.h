@@ -49,7 +49,18 @@ enum NodeType : unsigned {
 
   /// MPY - Unsigned multiply 16x16->32
   /// Takes two i16 operands, returns i32 (high:low)
-  MPY
+  MPY,
+
+  /// BYTE_STORE - Store byte from HIGH byte position of register
+  /// TMS9900 MOVB uses the HIGH byte, so we need this custom node
+  /// to properly handle byte stores. Takes (chain, value, ptr).
+  /// The value should have the byte in the HIGH byte position.
+  BYTE_STORE,
+
+  /// BYTE_LOAD - Load byte into HIGH byte position of register
+  /// TMS9900 MOVB loads into HIGH byte. Takes (chain, ptr).
+  /// Returns value with byte in HIGH position, plus chain.
+  BYTE_LOAD
 };
 } // end namespace TMS9900ISD
 

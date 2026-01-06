@@ -49,10 +49,19 @@ TMS9900TargetLowering::TMS9900TargetLowering(const TargetMachine &TM,
   // ===== 8-bit (i8) Operations =====
   // TMS9900 has byte instructions (MOVB, AB, SB, etc.) but they operate
   // on the upper byte of registers. We promote i8 to i16 for most operations.
-  // Byte loads/stores use MOVB which handles the upper byte placement.
+  // Byte loads/stores need custom lowering because MOVB uses the HIGH byte
+  // of a register, but LLVM puts byte values in the LOW byte.
 
-  // i8 loads and stores are handled by the instruction patterns (MOVB)
-  // We don't need custom lowering since extloadi8/truncstorei8 patterns work
+  // i8 loads and stores need custom lowering for byte position
+  // TMS9900 MOVB uses the HIGH byte of a register, so we need to shift
+  setTruncStoreAction(MVT::i16, MVT::i8, Custom);
+  setLoadExtAction(ISD::ZEXTLOAD, MVT::i16, MVT::i8, Custom);
+  setLoadExtAction(ISD::SEXTLOAD, MVT::i16, MVT::i8, Custom);
+  setLoadExtAction(ISD::EXTLOAD, MVT::i16, MVT::i8, Custom);
+
+  // Also mark i8 operations as needing promotion to i16, which will then
+  // go through our truncating store lowering
+  setOperationAction(ISD::STORE, MVT::i8, Promote);
 
   // Promote i8 operations to i16
   setOperationAction(ISD::ADD, MVT::i8, Promote);
@@ -263,6 +272,10 @@ const char *TMS9900TargetLowering::getTargetNodeName(unsigned Opcode) const {
     return "TMS9900ISD::BR_CC";
   case TMS9900ISD::MPY:
     return "TMS9900ISD::MPY";
+  case TMS9900ISD::BYTE_STORE:
+    return "TMS9900ISD::BYTE_STORE";
+  case TMS9900ISD::BYTE_LOAD:
+    return "TMS9900ISD::BYTE_LOAD";
   }
   return nullptr;
 }
@@ -368,6 +381,10 @@ SDValue TMS9900TargetLowering::LowerOperation(SDValue Op,
   switch (Op.getOpcode()) {
   default:
     llvm_unreachable("unimplemented operation");
+  case ISD::STORE:
+    return LowerSTORE(Op, DAG);
+  case ISD::LOAD:
+    return LowerLOAD(Op, DAG);
   case ISD::GlobalAddress:
     return LowerGlobalAddress(Op, DAG);
   case ISD::JumpTable:
@@ -399,22 +416,30 @@ SDValue TMS9900TargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
 
   // Handle i8 loads
   if (LD->getMemoryVT() == MVT::i8) {
-    // Load as i16 and handle extension
     SDValue Chain = LD->getChain();
     SDValue Ptr = LD->getBasePtr();
-
-    // TMS9900 MOVB loads a byte into the upper 8 bits of a register.
-    // For memory accesses, we do an extending load.
     ISD::LoadExtType ExtType = LD->getExtensionType();
 
-    // Create a new i16 load
+    // TMS9900 MOVB loads a byte into the HIGH 8 bits of a register.
+    // We need to shift right by 8 to move it to the LOW byte position.
     SDValue NewLoad = DAG.getExtLoad(
         ExtType == ISD::NON_EXTLOAD ? ISD::EXTLOAD : ExtType,
         DL, MVT::i16, Chain, Ptr, LD->getPointerInfo(),
         MVT::i8, LD->getOriginalAlign(), LD->getMemOperand()->getFlags());
 
-    // Return both the value and the chain
-    SDValue Results[] = {NewLoad, NewLoad.getValue(1)};
+    // Shift right by 8 to move byte from HIGH to LOW position
+    SDValue ShiftAmt = DAG.getConstant(8, DL, MVT::i16);
+    SDValue ShiftedVal;
+    if (ExtType == ISD::SEXTLOAD) {
+      // Arithmetic shift for sign extension
+      ShiftedVal = DAG.getNode(ISD::SRA, DL, MVT::i16, NewLoad, ShiftAmt);
+    } else {
+      // Logical shift for zero extension
+      ShiftedVal = DAG.getNode(ISD::SRL, DL, MVT::i16, NewLoad, ShiftAmt);
+    }
+
+    // Return both the shifted value and the chain
+    SDValue Results[] = {ShiftedVal, NewLoad.getValue(1)};
     return DAG.getMergeValues(Results, DL);
   }
 
@@ -430,17 +455,20 @@ SDValue TMS9900TargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
   if (ST->getAddressingMode() != ISD::UNINDEXED)
     return SDValue();
 
-  // Handle i8 stores
+  // Handle i8 stores - TMS9900 MOVB uses HIGH byte of register
   if (ST->getMemoryVT() == MVT::i8) {
     SDValue Chain = ST->getChain();
     SDValue Value = ST->getValue();
     SDValue Ptr = ST->getBasePtr();
 
-    // Truncate i16 to i8 if needed (this creates a truncating store)
     if (Value.getValueType() == MVT::i16) {
-      return DAG.getTruncStore(Chain, DL, Value, Ptr, ST->getPointerInfo(),
-                               MVT::i8, ST->getOriginalAlign(),
-                               ST->getMemOperand()->getFlags());
+      // Shift value left by 8 to put the byte in HIGH position for MOVB
+      SDValue ShiftAmt = DAG.getConstant(8, DL, MVT::i16);
+      SDValue ShiftedVal = DAG.getNode(ISD::SHL, DL, MVT::i16, Value, ShiftAmt);
+
+      // Create our custom BYTE_STORE node - will be matched to MOVB
+      return DAG.getNode(TMS9900ISD::BYTE_STORE, DL, MVT::Other,
+                         Chain, ShiftedVal, Ptr);
     }
   }
 
