@@ -427,25 +427,33 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
     // Handle register-to-register (Ts=0, Td=0) - most common case
     if (Ts == 0 && Td == 0) {
       unsigned Opcode = 0;
+      bool needsTiedOperand = false;  // For A/S/SOC/SZC which have $rd = $rs1
+      bool isCompare = false;  // C/CB have no output
       switch (Op4) {
-      case 0x4: Opcode = TMS9900::SZCrr; break;
-      case 0x6: Opcode = TMS9900::Srr; break;
-      case 0x8: Opcode = TMS9900::Crr; break;
-      case 0xA: Opcode = TMS9900::Arr; break;
+      case 0x4: Opcode = TMS9900::SZCrr; needsTiedOperand = true; break;
+      case 0x6: Opcode = TMS9900::Srr; needsTiedOperand = true; break;
+      case 0x8: Opcode = TMS9900::Crr; isCompare = true; break;
+      case 0xA: Opcode = TMS9900::Arr; needsTiedOperand = true; break;
       case 0xC: Opcode = TMS9900::MOVrr; break;
-      case 0xE: Opcode = TMS9900::SOCrr; break;
+      case 0xE: Opcode = TMS9900::SOCrr; needsTiedOperand = true; break;
       // Byte operations - use word equivalents for display
-      case 0x5: Opcode = TMS9900::SZCrr; break;  // SZCB
-      case 0x7: Opcode = TMS9900::Srr; break;    // SB
-      case 0x9: Opcode = TMS9900::Crr; break;    // CB
-      case 0xB: Opcode = TMS9900::Arr; break;    // AB
-      case 0xD: Opcode = TMS9900::MOVrr; break;  // MOVB
-      case 0xF: Opcode = TMS9900::SOCrr; break;  // SOCB
+      case 0x5: Opcode = TMS9900::SZCrr; needsTiedOperand = true; break;  // SZCB
+      case 0x7: Opcode = TMS9900::Srr; needsTiedOperand = true; break;    // SB
+      case 0x9: Opcode = TMS9900::Crr; isCompare = true; break;           // CB
+      case 0xB: Opcode = TMS9900::Arr; needsTiedOperand = true; break;    // AB
+      case 0xD: Opcode = TMS9900::MOVrr; break;                           // MOVB
+      case 0xF: Opcode = TMS9900::SOCrr; needsTiedOperand = true; break;  // SOCB
       default:
         return MCDisassembler::Fail;
       }
       MI.setOpcode(Opcode);
-      // MCInst operand order: dest first, then source
+      // For tied operands (A/S/SOC/SZC): (outs $rd), (ins $rs1, $rs2) with $rd = $rs1
+      // Need to add dest register twice (output and first input)
+      if (needsTiedOperand) {
+        if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+      }
+      // For compare: (outs), (ins $rs1, $rs2) - both are inputs
       if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
         return MCDisassembler::Fail;
       if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
@@ -515,8 +523,88 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
       return MCDisassembler::Success;
     }
 
+    // Handle symbolic source addressing (Ts=2, S=0, Td=0) - e.g., MOV @addr,Rd
+    if (Ts == 2 && S == 0 && Td == 0) {
+      uint16_t Addr = support::endian::read16be(Bytes.data() + 2);
+      unsigned Opcode = 0;
+      switch (Op4) {
+      case 0xC: Opcode = TMS9900::MOVam; break;
+      case 0xD: Opcode = TMS9900::MOVBam; break;
+      default:
+        // For other ops, use generic format
+        Opcode = TMS9900::MOVam;
+        break;
+      }
+      MI.setOpcode(Opcode);
+      // MOVam: (outs $rd), (ins $addr)
+      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      MI.addOperand(MCOperand::createImm(Addr));
+      return MCDisassembler::Success;
+    }
+
+    // Handle symbolic dest addressing (Td=2, D=0, Ts=0) - e.g., MOV Rs,@addr
+    if (Td == 2 && D == 0 && Ts == 0) {
+      uint16_t Addr = support::endian::read16be(Bytes.data() + 2);
+      unsigned Opcode = 0;
+      switch (Op4) {
+      case 0xC: Opcode = TMS9900::MOVma; break;
+      case 0xD: Opcode = TMS9900::MOVBma; break;
+      default:
+        Opcode = TMS9900::MOVma;
+        break;
+      }
+      MI.setOpcode(Opcode);
+      // MOVma: (outs), (ins $addr, $rs)
+      MI.addOperand(MCOperand::createImm(Addr));
+      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      return MCDisassembler::Success;
+    }
+
+    // Handle indexed source addressing (Ts=2, S!=0, Td=0) - e.g., MOV @offset(Rs),Rd
+    if (Ts == 2 && S != 0 && Td == 0) {
+      uint16_t Offset = support::endian::read16be(Bytes.data() + 2);
+      unsigned Opcode = 0;
+      switch (Op4) {
+      case 0xC: Opcode = TMS9900::MOVxm; break;
+      case 0xD: Opcode = TMS9900::MOVBxm; break;
+      default:
+        Opcode = TMS9900::MOVxm;
+        break;
+      }
+      MI.setOpcode(Opcode);
+      // MOVxm: (outs $rd), (ins $offset, $ri)
+      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      MI.addOperand(MCOperand::createImm(Offset));
+      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      return MCDisassembler::Success;
+    }
+
+    // Handle indexed dest addressing (Td=2, D!=0, Ts=0) - e.g., MOV Rs,@offset(Rd)
+    if (Td == 2 && D != 0 && Ts == 0) {
+      uint16_t Offset = support::endian::read16be(Bytes.data() + 2);
+      unsigned Opcode = 0;
+      switch (Op4) {
+      case 0xC: Opcode = TMS9900::MOVmx; break;
+      case 0xD: Opcode = TMS9900::MOVBmx; break;
+      default:
+        Opcode = TMS9900::MOVmx;
+        break;
+      }
+      MI.setOpcode(Opcode);
+      // MOVmx: (outs), (ins $offset, $ri, $rs)
+      MI.addOperand(MCOperand::createImm(Offset));
+      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      return MCDisassembler::Success;
+    }
+
     // For other addressing mode combinations, return fail for now
-    // TODO: Handle symbolic addressing, indexed addressing, etc.
     return MCDisassembler::Fail;
   }
 
