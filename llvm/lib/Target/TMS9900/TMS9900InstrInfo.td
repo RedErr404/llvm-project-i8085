@@ -702,15 +702,20 @@ def BL : Format3_Reg<0b0000011010, (outs), (ins GR16:$rs),
 }
 
 // BL with symbolic address - BL @symbol
+// Format 3 with symbolic addressing: 4 bytes (opcode + address)
 let isCall = 1, Defs = [R11] in
 def BL_sym : TMS9900Inst<(outs), (ins calltarget:$target),
                          "BL\t@$target",
                          [(TMS9900call tglobaladdr:$target)]> {
   bits<16> target;
-  bits<16> Inst;
+  bits<32> Inst;
+  // First word: opcode with symbolic addressing mode
   let Inst{15-10} = 0b000001;  // BL opcode prefix
   let Inst{9-4} = 0b101000;    // Symbolic addressing mode (Ts=10, S=0000)
   let Inst{3-0} = 0b0000;
+  // Second word: target address
+  let Inst{31-16} = target;
+  let Size = 4;
 }
 
 // BL with external symbol - BL @external
@@ -720,10 +725,14 @@ def BL_ext : TMS9900Inst<(outs), (ins calltarget:$target),
                          "BL\t@$target",
                          [(TMS9900call texternalsym:$target)]> {
   bits<16> target;
-  bits<16> Inst;
+  bits<32> Inst;
+  // First word: opcode with symbolic addressing mode
   let Inst{15-10} = 0b000001;
   let Inst{9-4} = 0b101000;
   let Inst{3-0} = 0b0000;
+  // Second word: target address
+  let Inst{31-16} = target;
+  let Size = 4;
   let isCodeGenOnly = 1;
 }
 

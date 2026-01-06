@@ -44,5 +44,6 @@ add_llvm_target(TMS9900CodeGen
   )
 
 add_subdirectory(AsmParser)
+add_subdirectory(Disassembler)
 add_subdirectory(MCTargetDesc)
 add_subdirectory(TargetInfo)
