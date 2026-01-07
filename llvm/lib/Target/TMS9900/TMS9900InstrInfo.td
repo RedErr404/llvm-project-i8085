@@ -145,6 +145,7 @@ def brtarget8 : Operand<OtherVT> {
 // 16-bit absolute branch target (for B @addr, used in branch relaxation)
 def brtarget16 : Operand<OtherVT> {
   let EncoderMethod = "getBranchTarget16Encoding";
+  let PrintMethod = "printBranchTarget16";
   let ParserMatchClass = TMS9900BrTargetAsmOperand;
 }
 
@@ -165,6 +166,13 @@ def memri : Operand<i16> {
 // Call target (for BL @symbol)
 def calltarget : Operand<i16> {
   let EncoderMethod = "getCallTargetEncoding";
+  let PrintMethod = "printBranchTarget16";
+  let ParserMatchClass = TMS9900ImmAsmOperand;
+}
+
+// Symbolic address for memory operands (MOV @addr, etc.)
+def symaddr : Operand<i16> {
+  let PrintMethod = "printBranchTarget16";
   let ParserMatchClass = TMS9900ImmAsmOperand;
 }
 
@@ -241,7 +249,7 @@ def MOVrr : Format1_Reg<0b1100, 0, (outs GR16:$rd), (ins GR16:$rs),
 //===----------------------------------------------------------------------===//
 
 // MOV @addr,Rd - Load from absolute address
-def MOVam : Format1_SymLoad<0b1100, 0, (outs GR16:$rd), (ins i16imm:$addr),
+def MOVam : Format1_SymLoad<0b1100, 0, (outs GR16:$rd), (ins symaddr:$addr),
                             "MOV\t@$addr,$rd",
                             [(set GR16:$rd, (load (TMS9900Wrapper tglobaladdr:$addr)))]> {
   let mayLoad = 1;
@@ -267,7 +275,7 @@ def MOVxm : Format1_IdxLoad<0b1100, 0, (outs GR16:$rd), (ins i16imm:$offset, GR1
 //===----------------------------------------------------------------------===//
 
 // MOV Rs,@addr - Store to absolute address
-def MOVma : Format1_SymStore<0b1100, 0, (outs), (ins i16imm:$addr, GR16:$rs),
+def MOVma : Format1_SymStore<0b1100, 0, (outs), (ins symaddr:$addr, GR16:$rs),
                              "MOV\t$rs,@$addr",
                              [(store GR16:$rs, (TMS9900Wrapper tglobaladdr:$addr))]> {
   let mayStore = 1;
@@ -337,7 +345,7 @@ def MOVBxm : Format1_IdxLoad<0b1100, 1, (outs GR16:$rd), (ins i16imm:$offset, GR
 }
 
 // MOVB @addr,Rd - Load byte from absolute address
-def MOVBam : Format1_SymLoad<0b1100, 1, (outs GR16:$rd), (ins i16imm:$addr),
+def MOVBam : Format1_SymLoad<0b1100, 1, (outs GR16:$rd), (ins symaddr:$addr),
                              "MOVB\t@$addr,$rd",
                              [(set GR16:$rd, (TMS9900byteload (TMS9900Wrapper tglobaladdr:$addr)))]> {
   let mayLoad = 1;
@@ -364,7 +372,7 @@ def MOVBmx : Format1_IdxStore<0b1100, 1, (outs), (ins i16imm:$offset, GR16:$ri, 
 }
 
 // MOVB Rs,@addr - Store byte to absolute address
-def MOVBma : Format1_SymStore<0b1100, 1, (outs), (ins i16imm:$addr, GR16:$rs),
+def MOVBma : Format1_SymStore<0b1100, 1, (outs), (ins symaddr:$addr, GR16:$rs),
                               "MOVB\t$rs,@$addr",
                               [(TMS9900bytestore GR16:$rs, (TMS9900Wrapper tglobaladdr:$addr))]> {
   let mayStore = 1;

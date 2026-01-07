@@ -155,6 +155,7 @@ public:
   std::pair<const char *, uint64_t> getMnemonic(const MCInst *MI) override;
 
   void printOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
+  void printBranchTarget16(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printRegName(raw_ostream &OS, MCRegister Reg) const override {
     OS << getRegisterName(Reg);
   }
@@ -176,6 +177,24 @@ void TMS9900InstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   } else {
     assert(Op.isExpr() && "unknown operand kind in printOperand");
     Op.getExpr()->print(O, &MAI);
+  }
+}
+
+void TMS9900InstPrinter::printBranchTarget16(const MCInst *MI, unsigned OpNo,
+                                              raw_ostream &O) {
+  const MCOperand &Op = MI->getOperand(OpNo);
+  if (Op.isImm()) {
+    // Always print branch targets in hex (addresses)
+    uint16_t Addr = static_cast<uint16_t>(Op.getImm() & 0xFFFF);
+    if (MAI.getAssemblerDialect() == AD_XAS99) {
+      O << ">" << format_hex_no_prefix(Addr, 4);
+    } else {
+      O << "0x" << format_hex_no_prefix(Addr, 4);
+    }
+  } else if (Op.isExpr()) {
+    Op.getExpr()->print(O, &MAI);
+  } else {
+    llvm_unreachable("Invalid branch target operand");
   }
 }
 

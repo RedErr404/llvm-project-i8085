@@ -358,13 +358,13 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
       return MCDisassembler::Success;
     }
 
-    // Special case: B (branch) also often uses symbolic addressing
-    if (Opcode == TMS9900::Br && Ts == 0 && S == 0) {
-      // B @addr - symbolic addressing
+    // Special case: B (branch) with symbolic addressing
+    if (Opcode == TMS9900::Br && Ts == 2 && S == 0) {
+      // B @addr - symbolic addressing (Ts=2, S=0)
       if (Bytes.size() < 4) return MCDisassembler::Fail;
       uint16_t Target = support::endian::read16be(Bytes.data() + 2);
       Size = 4;
-      MI.setOpcode(TMS9900::Br);
+      MI.setOpcode(TMS9900::B_sym);
       MI.addOperand(MCOperand::createImm(Target));
       return MCDisassembler::Success;
     }
