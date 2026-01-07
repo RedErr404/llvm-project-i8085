@@ -27,6 +27,41 @@ using namespace llvm;
 #define GET_INSTRINFO_CTOR_DTOR
 #include "TMS9900GenInstrInfo.inc"
 
+static bool isCondBranchOpcode(unsigned Opc) {
+  switch (Opc) {
+  case TMS9900::JEQ:
+  case TMS9900::JNE:
+  case TMS9900::JGT:
+  case TMS9900::JLT:
+  case TMS9900::JH:
+  case TMS9900::JHE:
+  case TMS9900::JL:
+  case TMS9900::JLE:
+  case TMS9900::JOC:
+  case TMS9900::JNC:
+  case TMS9900::JNO:
+  case TMS9900::JOP:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static unsigned getOppositeCondBranchOpcode(unsigned Opc) {
+  switch (Opc) {
+  case TMS9900::JEQ: return TMS9900::JNE;
+  case TMS9900::JNE: return TMS9900::JEQ;
+  case TMS9900::JL:  return TMS9900::JHE; // unsigned <  -> unsigned >=
+  case TMS9900::JHE: return TMS9900::JL;  // unsigned >= -> unsigned <
+  case TMS9900::JH:  return TMS9900::JLE; // unsigned >  -> unsigned <=
+  case TMS9900::JLE: return TMS9900::JH;  // unsigned <= -> unsigned >
+  case TMS9900::JOC: return TMS9900::JNC;
+  case TMS9900::JNC: return TMS9900::JOC;
+  default:
+    return 0;
+  }
+}
+
 TMS9900InstrInfo::TMS9900InstrInfo(const TMS9900Subtarget &STI)
     : TMS9900GenInstrInfo(TMS9900::ADJCALLSTACKDOWN, TMS9900::ADJCALLSTACKUP),
       RI(STI), Subtarget(STI) {}
@@ -105,22 +140,66 @@ bool TMS9900InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
     if (I->isDebugInstr())
       continue;
 
-    // If we see a non-branch, we're done
-    if (!I->isBranch())
+    // If we see a non-terminator, we're done
+    if (!isUnpredicatedTerminator(*I))
       break;
 
+    // A terminator that isn't a branch can't be handled.
+    if (!I->isBranch())
+      return true;
+
+    // Cannot handle indirect branches.
+    if (I->isIndirectBranch())
+      return true;
+
+    unsigned Opc = I->getOpcode();
+
     // Handle unconditional branch
-    if (I->getOpcode() == TMS9900::JMP) {
-      if (TBB == nullptr) {
+    if (Opc == TMS9900::JMP) {
+      if (!AllowModify) {
         TBB = I->getOperand(0).getMBB();
         continue;
       }
-      // Already have a target, this is unreachable code
-      return true;
+
+      // If the block has any instructions after a JMP, delete them.
+      MBB.erase(std::next(I), MBB.end());
+      Cond.clear();
+      FBB = nullptr;
+
+      // Delete the JMP if it's equivalent to a fall-through.
+      if (MBB.isLayoutSuccessor(I->getOperand(0).getMBB())) {
+        TBB = nullptr;
+        I->eraseFromParent();
+        I = MBB.end();
+        continue;
+      }
+
+      // TBB is used to indicate the unconditional destination.
+      TBB = I->getOperand(0).getMBB();
+      continue;
     }
 
     // Handle conditional branches
-    // TODO: Implement conditional branch analysis
+    if (!isCondBranchOpcode(Opc))
+      return true;
+
+    // Working from the bottom, handle the first conditional branch.
+    if (Cond.empty()) {
+      FBB = TBB;
+      TBB = I->getOperand(0).getMBB();
+      Cond.push_back(MachineOperand::CreateImm(Opc));
+      continue;
+    }
+
+    // Handle subsequent conditional branches. Only handle the case where all
+    // conditional branches branch to the same destination.
+    if (TBB != I->getOperand(0).getMBB())
+      return true;
+
+    unsigned OldOpc = Cond[0].getImm();
+    if (OldOpc == Opc)
+      continue;
+
     return true;
   }
 
@@ -137,21 +216,37 @@ unsigned TMS9900InstrInfo::insertBranch(MachineBasicBlock &MBB,
   assert((Cond.size() == 0 || Cond.size() == 1) &&
          "TMS9900 branch conditions have zero or one component");
 
+  if (BytesAdded)
+    *BytesAdded = 0;
+
   if (Cond.empty()) {
     // Unconditional branch
     BuildMI(&MBB, DL, get(TMS9900::JMP)).addMBB(TBB);
     if (BytesAdded)
-      *BytesAdded = 2;
+      *BytesAdded += 2;
     return 1;
   }
 
+  unsigned Opc = Cond[0].getImm();
+  assert(isCondBranchOpcode(Opc) &&
+         "invalid TMS9900 branch condition opcode");
+
   // Conditional branch
-  // TODO: Implement based on condition
-  // For now, just insert unconditional
-  BuildMI(&MBB, DL, get(TMS9900::JMP)).addMBB(TBB);
+  unsigned Count = 0;
+  BuildMI(&MBB, DL, get(Opc)).addMBB(TBB);
   if (BytesAdded)
-    *BytesAdded = 2;
-  return 1;
+    *BytesAdded += 2;
+  ++Count;
+
+  if (FBB) {
+    // Two-way Conditional branch. Insert the second branch.
+    BuildMI(&MBB, DL, get(TMS9900::JMP)).addMBB(FBB);
+    if (BytesAdded)
+      *BytesAdded += 2;
+    ++Count;
+  }
+
+  return Count;
 }
 
 unsigned TMS9900InstrInfo::removeBranch(MachineBasicBlock &MBB,
@@ -182,12 +277,16 @@ unsigned TMS9900InstrInfo::removeBranch(MachineBasicBlock &MBB,
 
 bool TMS9900InstrInfo::reverseBranchCondition(
     SmallVectorImpl<MachineOperand> &Cond) const {
-  // TODO: Implement condition reversal
-  // JEQ <-> JNE
-  // JGT <-> JLE
-  // JLT <-> JGE (using JHE?)
-  // etc.
-  return true;  // Return true to indicate we can't reverse (for now)
+  if (Cond.size() != 1 || !Cond[0].isImm())
+    return true;
+
+  unsigned Opc = Cond[0].getImm();
+  unsigned Inverted = getOppositeCondBranchOpcode(Opc);
+  if (!Inverted)
+    return true;
+
+  Cond[0].setImm(Inverted);
+  return false;
 }
 
 bool TMS9900InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
