@@ -756,7 +756,7 @@ SDValue TMS9900TargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
   // dest is the register operand (CI reg,imm). We order operands to keep the
   // comparison semantics consistent across reg/reg and reg/imm cases.
   auto isImm = [](SDValue V) {
-    return isa<ConstantSDNode>(V) || isa<TargetConstantSDNode>(V);
+    return isa<ConstantSDNode>(V);
   };
 
   // If the LHS is immediate, swap operands and condition to keep dest in a reg.
