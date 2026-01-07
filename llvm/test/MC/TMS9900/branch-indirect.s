@@ -6,9 +6,9 @@
         b  *r11
         bl *r11
 
-; ENC: {{[Bb]}}[[:space:]]+\*{{[Rr]}}11
+; ENC: {{[Bb]}}{{[[:space:]]+}}*{{[Rr]}}11
 ; ENC-SAME: encoding: [0x04,0x5b]
-; ENC: {{[Bb]}}{{[Ll]}}[[:space:]]+\*{{[Rr]}}11
+; ENC: {{[Bb]}}{{[Ll]}}{{[[:space:]]+}}*{{[Rr]}}11
 ; ENC-SAME: encoding: [0x06,0x9b]
-; DIS: {{[Bb]}}[[:space:]]+\*{{[Rr]}}11
-; DIS: {{[Bb]}}{{[Ll]}}[[:space:]]+\*{{[Rr]}}11
+; DIS: {{[Bb]}}{{[[:space:]]+}}*{{[Rr]}}11
+; DIS: {{[Bb]}}{{[Ll]}}{{[[:space:]]+}}*{{[Rr]}}11
