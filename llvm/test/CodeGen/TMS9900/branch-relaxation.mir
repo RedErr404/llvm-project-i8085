@@ -1,0 +1,231 @@
+# RUN: llc -mtriple=tms9900 -run-pass branch-relaxation %s -o - | FileCheck %s
+
+--- |
+  define void @relax_long_cond() {
+    ret void
+  }
+...
+---
+name: relax_long_cond
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    JEQ %bb.2, implicit $st
+    JMP %bb.1
+
+  bb.1:
+    successors: %bb.2
+    $r1 = IMPLICIT_DEF
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    renamable $r1 = MOVrr $r1, implicit-def $st
+    JMP %bb.2
+
+  bb.2:
+    RET
+
+...
+
+# CHECK-LABEL: name: relax_long_cond
+# CHECK: bb.0:
+# CHECK: JNE %bb.1, implicit $st
+# CHECK: bb.3:
+# CHECK: B_sym %bb.2
