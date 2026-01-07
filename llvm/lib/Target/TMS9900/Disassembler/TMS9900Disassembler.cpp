@@ -363,6 +363,18 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
     MI.setOpcode(TMS9900::RSET);
     return MCDisassembler::Success;
   }
+  if (Insn == CKOF_OPCODE) {
+    MI.setOpcode(TMS9900::CKOF);
+    return MCDisassembler::Success;
+  }
+  if (Insn == CKON_OPCODE) {
+    MI.setOpcode(TMS9900::CKON);
+    return MCDisassembler::Success;
+  }
+  if (Insn == LREX_OPCODE) {
+    MI.setOpcode(TMS9900::LREX);
+    return MCDisassembler::Success;
+  }
 
   // Check Format 3: Single operand (0000 01xx xxxx xxxx)
   if ((Insn & 0xFC00) == 0x0400 || (Insn & 0xFC00) == 0x0500 ||
