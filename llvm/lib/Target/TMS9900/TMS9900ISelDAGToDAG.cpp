@@ -57,8 +57,8 @@ char TMS9900DAGToDAGISel::ID;
 
 } // end anonymous namespace
 
-/// Map ISD::CondCode to TMS9900 jump instruction opcode
-/// Note: SETLT and SETLE are handled in LowerBR_CC by swapping operands
+/// Map ISD::CondCode to TMS9900 jump instruction opcode.
+/// LowerBR_CC orders the compare so flags reflect (LHS - RHS).
 static unsigned getJumpOpcodeForCC(ISD::CondCode CC) {
   switch (CC) {
   default:
@@ -70,18 +70,11 @@ static unsigned getJumpOpcodeForCC(ISD::CondCode CC) {
   case ISD::SETGT:
     return TMS9900::JGT;
   case ISD::SETLT:
-    // Should have been transformed to SETGT with swapped operands
-    // Fall back to SETGT (operands should already be swapped)
-    return TMS9900::JGT;
+    return TMS9900::JLT;
   case ISD::SETGE:
-    // a >= b is NOT(a < b) which after swap becomes NOT(b > a)
-    // We'll use JGT but the semantics need special handling
-    // For now, treat as JGT - this may need JGT+JEQ for full correctness
-    // TODO: Emit both JGT and JEQ for complete >= support
     return TMS9900::JGT;
   case ISD::SETLE:
-    // Should have been transformed to SETGE with swapped operands
-    return TMS9900::JGT;
+    return TMS9900::JLT;
   // Unsigned comparisons work directly
   case ISD::SETUGT:
     return TMS9900::JH;   // Jump if High (unsigned >)
@@ -109,12 +102,10 @@ void TMS9900DAGToDAGISel::SelectBR_CC(SDNode *N) {
   SDValue TargetNode = CurDAG->getBasicBlock(TargetBB);
   SDValue Glue = (N->getNumOperands() > 3) ? N->getOperand(3) : SDValue();
 
-  // For SETGE and SETLE (after operand swap), we need both JGT and JEQ
+  // For signed >= and <=, we need both the equality and the inequality case.
   // because TMS9900 doesn't have a single signed >= instruction
   if (CC == ISD::SETGE || CC == ISD::SETLE) {
-    // Emit JEQ first, then JGT (both to same target)
-    // JEQ handles the equal case, JGT handles the greater case
-    // Together they cover >=
+    unsigned SecondOpc = (CC == ISD::SETGE) ? TMS9900::JGT : TMS9900::JLT;
 
     SmallVector<SDValue, 3> EqOps;
     EqOps.push_back(TargetNode);
@@ -123,18 +114,22 @@ void TMS9900DAGToDAGISel::SelectBR_CC(SDNode *N) {
       EqOps.push_back(Glue);
 
     // Create JEQ node
-    SDNode *JEQNode = CurDAG->getMachineNode(TMS9900::JEQ, DL, MVT::Other, MVT::Glue, EqOps);
-    Chain = SDValue(JEQNode, 0);
-    Glue = SDValue(JEQNode, 1);
+    SDNode *JEQNode =
+        CurDAG->getMachineNode(TMS9900::JEQ, DL, MVT::Other, MVT::Glue, EqOps);
+    SDValue JEQChain = SDValue(JEQNode, 0);
+    SDValue JEQGlue = SDValue(JEQNode, 1);
 
-    // Now emit JGT with the chain from JEQ
-    SmallVector<SDValue, 3> GtOps;
-    GtOps.push_back(TargetNode);
-    GtOps.push_back(Chain);
-    if (Glue.getNode())
-      GtOps.push_back(Glue);
+    // Emit JGT/JLT with the chain from JEQ
+    SmallVector<SDValue, 3> NextOps;
+    NextOps.push_back(TargetNode);
+    NextOps.push_back(JEQChain);
+    if (JEQGlue.getNode())
+      NextOps.push_back(JEQGlue);
 
-    CurDAG->SelectNodeTo(N, TMS9900::JGT, MVT::Other, GtOps);
+    SDNode *CondNode =
+        CurDAG->getMachineNode(SecondOpc, DL, MVT::Other, NextOps);
+    ReplaceUses(SDValue(N, 0), SDValue(CondNode, 0));
+    CurDAG->RemoveDeadNode(N);
     return;
   }
 

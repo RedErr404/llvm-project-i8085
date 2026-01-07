@@ -750,45 +750,31 @@ SDValue TMS9900TargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
   SDValue Dest = Op.getOperand(4);
   SDLoc DL(Op);
 
-  // TMS9900 comparison quirks:
-  // - JGT works for signed >
-  // - JEQ works for ==
-  // - JNE works for !=
-  // - JH/JHE/JL/JLE work for unsigned comparisons
-  // - For signed < (SETLT), we need to swap operands and use JGT
-  // - For signed <= (SETLE), we need to swap operands and use JGT or (JGT|JEQ)
-  // - For signed >= (SETGE), we can use JGT|JEQ or swap and JLT (but JLT doesn't exist for compare)
+  // Normalize operand order so the compare computes (LHS - RHS).
+  // TMS9900 C/CI set flags based on (dest - src). For register compares,
+  // that means dest is the second operand (C src,dst). For immediate compares,
+  // dest is the register operand (CI reg,imm). We order operands to keep the
+  // comparison semantics consistent across reg/reg and reg/imm cases.
+  auto isImm = [](SDValue V) {
+    return isa<ConstantSDNode>(V) || isa<TargetConstantSDNode>(V);
+  };
 
-  SDValue CmpLHS = LHS;
-  SDValue CmpRHS = RHS;
+  // If the LHS is immediate, swap operands and condition to keep dest in a reg.
+  if (isImm(LHS) && !isImm(RHS)) {
+    std::swap(LHS, RHS);
+    CC = ISD::getSetCCSwappedOperands(CC);
+  }
 
-  // Handle conditions that need operand swapping
-  switch (CC) {
-  case ISD::SETLT:
-    // a < b  =>  b > a, swap operands and use SETGT
-    std::swap(CmpLHS, CmpRHS);
-    CC = ISD::SETGT;
-    break;
-  case ISD::SETLE:
-    // a <= b  =>  b >= a  =>  !(a > b), but we can't negate easily
-    // Alternative: a <= b  =>  b > a OR b == a
-    // Simpler: swap to b >= a, but that still needs JGE which we don't have
-    // Best approach: swap operands, use SETGE (which we'll handle as !SETLT)
-    // Actually: a <= b is equivalent to !(a > b). We can swap and use NOT GT.
-    // For now, swap and we'll need to handle SETGE specially
-    std::swap(CmpLHS, CmpRHS);
-    CC = ISD::SETGE;
-    break;
-  case ISD::SETGE:
-    // a >= b  =>  !(a < b). Since we don't have JLT for compare result,
-    // we can either use JGT+JEQ or handle this as NOT(swap+JGT)
-    // For simplicity, we handle this as: NOT(b > a) - so swap and use SETGT for FALSE branch
-    // Actually, let's just swap and pretend it's SETGT, then invert the branch target
-    // This is getting complex - for now, let's do: a >= b => swap to b <= a => b < a OR b == a
-    // Simplest: don't touch SETGE, handle it in instruction selection
-    break;
-  default:
-    break;
+  SDValue CmpLHS;
+  SDValue CmpRHS;
+  if (isImm(RHS)) {
+    // CI: dest is the register operand (LHS).
+    CmpLHS = LHS;
+    CmpRHS = RHS;
+  } else {
+    // C: dest is the second operand, so swap to compare (LHS - RHS).
+    CmpLHS = RHS;
+    CmpRHS = LHS;
   }
 
   // Create comparison
@@ -1224,10 +1210,10 @@ TMS9900TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     // Note: Don't add virtual registers as live-ins - that's for physical regs
     // The register allocator will handle virtual register liveness
 
-    // StartBB: Compare and branch
+    // StartBB: Compare and branch (flags reflect LHS - RHS)
     BuildMI(StartBB, DL, TII.get(TMS9900::Crr))
-        .addReg(LHSReg)
-        .addReg(RHSReg);
+        .addReg(RHSReg)
+        .addReg(LHSReg);
 
     // Choose the right conditional jump based on CC
     unsigned JumpOpc;
