@@ -720,7 +720,9 @@ def B_sym : TMS9900Inst<(outs), (ins brtarget16:$target),
 // JMP - Unconditional jump (PC-relative)
 def JMP : Format6<0b00010000, (outs), (ins brtarget8:$disp),
                   "JMP\t$disp",
-                  [(br bb:$disp)]>;
+                  [(br bb:$disp)]> {
+  let isBarrier = 1;
+}
 
 // Conditional jumps - all are branches that use the status register
 let Uses = [ST], isBranch = 1, isTerminator = 1 in {
