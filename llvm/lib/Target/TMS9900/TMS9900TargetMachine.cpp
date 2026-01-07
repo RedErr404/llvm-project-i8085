@@ -101,5 +101,5 @@ bool TMS9900PassConfig::addInstSelector() {
 }
 
 void TMS9900PassConfig::addPreEmitPass() {
-  // Add any pre-emit passes here
+  addPass(&BranchRelaxationPassID);
 }

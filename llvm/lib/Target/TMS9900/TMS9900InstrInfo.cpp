@@ -15,10 +15,12 @@
 #include "TMS9900Subtarget.h"
 #include "TMS9900TargetMachine.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MathExtras.h"
 
 using namespace llvm;
 
@@ -287,6 +289,73 @@ bool TMS9900InstrInfo::reverseBranchCondition(
 
   Cond[0].setImm(Inverted);
   return false;
+}
+
+unsigned TMS9900InstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
+  switch (MI.getOpcode()) {
+  case TargetOpcode::CFI_INSTRUCTION:
+  case TargetOpcode::EH_LABEL:
+  case TargetOpcode::IMPLICIT_DEF:
+  case TargetOpcode::KILL:
+  case TargetOpcode::DBG_VALUE:
+    return 0;
+  case TargetOpcode::INLINEASM:
+  case TargetOpcode::INLINEASM_BR: {
+    const MachineFunction &MF = *MI.getParent()->getParent();
+    return getInlineAsmLength(MI.getOperand(0).getSymbolName(),
+                              *MF.getTarget().getMCAsmInfo());
+  }
+  default:
+    return get(MI.getOpcode()).getSize();
+  }
+}
+
+bool TMS9900InstrInfo::isBranchOffsetInRange(unsigned BranchOpc,
+                                              int64_t BrOffset) const {
+  switch (BranchOpc) {
+  case TMS9900::JMP:
+  case TMS9900::JEQ:
+  case TMS9900::JNE:
+  case TMS9900::JGT:
+  case TMS9900::JLT:
+  case TMS9900::JH:
+  case TMS9900::JHE:
+  case TMS9900::JL:
+  case TMS9900::JLE:
+  case TMS9900::JOC:
+  case TMS9900::JNC:
+  case TMS9900::JNO:
+  case TMS9900::JOP: {
+    if (BrOffset & 1)
+      return false;
+    int64_t WordOffset = (BrOffset >> 1) - 1;
+    return isInt<8>(WordOffset);
+  }
+  case TMS9900::B_sym:
+    return true;
+  default:
+    llvm_unreachable("unknown branch opcode");
+  }
+}
+
+MachineBasicBlock *
+TMS9900InstrInfo::getBranchDestBlock(const MachineInstr &MI) const {
+  unsigned Opc = MI.getOpcode();
+  if (Opc == TMS9900::JMP || Opc == TMS9900::B_sym || isCondBranchOpcode(Opc))
+    return MI.getOperand(0).getMBB();
+  return nullptr;
+}
+
+void TMS9900InstrInfo::insertIndirectBranch(MachineBasicBlock &MBB,
+                                            MachineBasicBlock &NewDestBB,
+                                            MachineBasicBlock &RestoreBB,
+                                            const DebugLoc &DL,
+                                            int64_t BrOffset,
+                                            RegScavenger *RS) const {
+  (void)RestoreBB;
+  (void)BrOffset;
+  (void)RS;
+  BuildMI(&MBB, DL, get(TMS9900::B_sym)).addMBB(&NewDestBB);
 }
 
 bool TMS9900InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
