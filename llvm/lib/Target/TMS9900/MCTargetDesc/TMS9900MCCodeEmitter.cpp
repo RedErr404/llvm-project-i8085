@@ -64,6 +64,10 @@ class TMS9900MCCodeEmitter : public MCCodeEmitter {
                                    SmallVectorImpl<MCFixup> &Fixups,
                                    const MCSubtargetInfo &STI) const;
 
+  unsigned getBranchTarget16Encoding(const MCInst &MI, unsigned Op,
+                                     SmallVectorImpl<MCFixup> &Fixups,
+                                     const MCSubtargetInfo &STI) const;
+
   unsigned getCallTargetEncoding(const MCInst &MI, unsigned Op,
                                  SmallVectorImpl<MCFixup> &Fixups,
                                  const MCSubtargetInfo &STI) const;
@@ -163,6 +167,22 @@ unsigned TMS9900MCCodeEmitter::getBranchTargetEncoding(const MCInst &MI, unsigne
   assert(MO.isExpr() && "Expr operand expected");
   Fixups.push_back(MCFixup::create(0, MO.getExpr(),
       static_cast<MCFixupKind>(TMS9900::fixup_tms9900_pcrel_8), MI.getLoc()));
+  return 0;
+}
+
+unsigned TMS9900MCCodeEmitter::getBranchTarget16Encoding(const MCInst &MI, unsigned Op,
+                                                          SmallVectorImpl<MCFixup> &Fixups,
+                                                          const MCSubtargetInfo &STI) const {
+  // Absolute branch target for B @addr instructions (used in branch relaxation)
+  // The address is a 16-bit absolute value in the second word
+  const MCOperand &MO = MI.getOperand(Op);
+  if (MO.isImm())
+    return MO.getImm();
+
+  assert(MO.isExpr() && "Expr operand expected");
+  // Fixup at offset 2 (second word of the instruction)
+  Fixups.push_back(MCFixup::create(2, MO.getExpr(),
+      static_cast<MCFixupKind>(TMS9900::fixup_tms9900_16), MI.getLoc()));
   return 0;
 }
 

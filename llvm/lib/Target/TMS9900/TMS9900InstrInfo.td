@@ -142,6 +142,12 @@ def brtarget8 : Operand<OtherVT> {
   let ParserMatchClass = TMS9900BrTargetAsmOperand;
 }
 
+// 16-bit absolute branch target (for B @addr, used in branch relaxation)
+def brtarget16 : Operand<OtherVT> {
+  let EncoderMethod = "getBranchTarget16Encoding";
+  let ParserMatchClass = TMS9900BrTargetAsmOperand;
+}
+
 // Memory operand (for symbolic addressing)
 def memsrc : Operand<i16> {
   let MIOperandInfo = (ops GR16);
@@ -673,6 +679,24 @@ def Br : Format3_Reg<0b0000010001, (outs), (ins GR16:$rs),
   let isTerminator = 1;
   let isBarrier = 1;
   let isIndirectBranch = 1;
+}
+
+// B with symbolic address - B @symbol (for branch relaxation)
+// Format 3 with symbolic addressing: 4 bytes (opcode + address)
+let isBranch = 1, isTerminator = 1, isBarrier = 1 in
+def B_sym : TMS9900Inst<(outs), (ins brtarget16:$target),
+                        "B\t@$target",
+                        []> {
+  bits<16> target;
+  bits<32> Inst;
+  // First word: opcode with symbolic addressing mode
+  // B opcode is 0000010001 (10 bits), then Ts=10, S=0000
+  let Inst{15-6} = 0b0000010001;  // B opcode (10 bits)
+  let Inst{5-4} = 0b10;           // Ts = symbolic addressing
+  let Inst{3-0} = 0b0000;         // S = 0 (address follows)
+  // Second word: target address
+  let Inst{31-16} = target;
+  let Size = 4;
 }
 
 // JMP - Unconditional jump (PC-relative)

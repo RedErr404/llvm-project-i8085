@@ -16,6 +16,7 @@
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCFixupKindInfo.h"
+#include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCSymbol.h"
@@ -25,7 +26,55 @@
 
 using namespace llvm;
 
+// TMS9900 branch instruction opcodes (Format 6, upper 8 bits)
+namespace TMS9900Opc {
+  const unsigned JMP = 0x10;
+  const unsigned JLT = 0x11;
+  const unsigned JLE = 0x12;
+  const unsigned JEQ = 0x13;
+  const unsigned JHE = 0x14;
+  const unsigned JGT = 0x15;
+  const unsigned JNE = 0x16;
+  const unsigned JNC = 0x17;
+  const unsigned JOC = 0x18;
+  const unsigned JNO = 0x19;
+  const unsigned JL  = 0x1A;
+  const unsigned JH  = 0x1B;
+  const unsigned JOP = 0x1C;
+}
+
 namespace {
+
+// Get the inverted condition opcode for branch relaxation
+// Returns 0 if no simple inversion exists
+static unsigned getInvertedBranchOpcode(unsigned Opcode) {
+  switch (Opcode) {
+  case TMS9900Opc::JEQ: return TMS9900Opc::JNE;
+  case TMS9900Opc::JNE: return TMS9900Opc::JEQ;
+  case TMS9900Opc::JL:  return TMS9900Opc::JHE;  // unsigned < → unsigned >=
+  case TMS9900Opc::JHE: return TMS9900Opc::JL;   // unsigned >= → unsigned <
+  case TMS9900Opc::JH:  return TMS9900Opc::JLE;  // unsigned > → unsigned <=
+  case TMS9900Opc::JLE: return TMS9900Opc::JH;   // unsigned <= → unsigned >
+  case TMS9900Opc::JOC: return TMS9900Opc::JNC;
+  case TMS9900Opc::JNC: return TMS9900Opc::JOC;
+  // JGT/JLT don't have simple single-instruction inverses
+  // JNO/JOP don't have inverses
+  default: return 0;
+  }
+}
+
+// Check if an instruction is a relaxable conditional branch
+static bool isRelaxableBranch(const MCInst &Inst) {
+  // Get the opcode from the first byte of the instruction encoding
+  // Format 6 instructions have opcode in bits 15-8
+  unsigned Opcode = Inst.getOpcode();
+
+  // We need to check the actual instruction opcode, not the LLVM opcode
+  // For now, assume all Format 6 conditional branches are relaxable
+  // The actual check will be done when we have the binary encoding
+  return true;
+}
+
 class TMS9900AsmBackend : public MCAsmBackend {
   uint8_t OSABI;
 
@@ -47,10 +96,24 @@ public:
     return createTMS9900ELFObjectWriter(OSABI);
   }
 
+  // Check if a fixup needs relaxation (branch out of range)
   bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
                             const MCRelaxableFragment *DF,
                             const MCAsmLayout &Layout) const override {
-    return false;
+    // Only relax 8-bit PC-relative branch fixups
+    if (Fixup.getKind() != TMS9900::fixup_tms9900_pcrel_8)
+      return false;
+
+    // Convert to signed word offset
+    int64_t Offset = Value;
+    if (Offset & 1)
+      return true;  // Misaligned, will fail anyway
+
+    Offset >>= 1;   // Convert to word offset
+    Offset -= 1;    // PC points to next instruction
+
+    // Check if out of 8-bit signed range (-128 to +127 words)
+    return Offset < -128 || Offset > 127;
   }
 
   bool fixupNeedsRelaxationAdvanced(const MCFixup &Fixup, bool Resolved,
@@ -58,7 +121,37 @@ public:
                                     const MCRelaxableFragment *DF,
                                     const MCAsmLayout &Layout,
                                     const bool WasForced) const override {
-    return false;
+    // If not resolved, assume it might need relaxation
+    if (!Resolved)
+      return true;
+
+    return fixupNeedsRelaxation(Fixup, Value, DF, Layout);
+  }
+
+  // Relax a branch instruction to a longer form
+  void relaxInstruction(MCInst &Inst,
+                        const MCSubtargetInfo &STI) const override {
+    assert(Inst.getNumOperands() >= 1 && "Branch must have target operand");
+    assert(Inst.getOpcode() == TMS9900::JMP &&
+           "Only JMP can be relaxed (mayNeedRelaxation should filter others)");
+
+    // Convert JMP to B @target (4 bytes instead of 2)
+    MCInst Relaxed;
+    Relaxed.setOpcode(TMS9900::B_sym);
+    Relaxed.addOperand(Inst.getOperand(0));  // Copy target operand
+    Inst = std::move(Relaxed);
+  }
+
+  // Check if instruction may need relaxation
+  bool mayNeedRelaxation(const MCInst &Inst,
+                         const MCSubtargetInfo &STI) const override {
+    // Only unconditional JMP can be relaxed to B @target.
+    // Conditional branches cannot be easily relaxed in the MC layer
+    // (would need inverted branch + long jump), so we leave them alone.
+    // The code generator should emit patterns like:
+    //   Jcc label    ; short range conditional
+    //   JMP target   ; this can be relaxed if out of range
+    return Inst.getOpcode() == TMS9900::JMP;
   }
 
   unsigned getNumFixupKinds() const override {
