@@ -156,6 +156,8 @@ static const Format8Info Format8Opcodes[] = {
 // Format 9: [opcode:12] + [imm:16] - LWPI, LIMI
 static const uint16_t LWPI_OPCODE = 0x02E0;
 static const uint16_t LIMI_OPCODE = 0x0300;
+static const uint16_t STST_OPCODE = 0x02C0;
+static const uint16_t STWP_OPCODE = 0x02A0;
 
 // Format 7: [opcode:8][C:4][W:4] - Shift instructions
 struct Format7Info {
@@ -208,6 +210,22 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
     Size = 4;
     MI.setOpcode(TMS9900::LIMI);
     MI.addOperand(MCOperand::createImm(Imm));
+    return MCDisassembler::Success;
+  }
+
+  // Check Format 10: STST/STWP (store internal registers)
+  if ((Insn & 0xFFF0) == STST_OPCODE) {
+    unsigned Rd = Insn & 0xF;
+    MI.setOpcode(TMS9900::STST);
+    if (DecodeGR16RegisterClass(MI, Rd, Address, this) != MCDisassembler::Success)
+      return MCDisassembler::Fail;
+    return MCDisassembler::Success;
+  }
+  if ((Insn & 0xFFF0) == STWP_OPCODE) {
+    unsigned Rd = Insn & 0xF;
+    MI.setOpcode(TMS9900::STWP);
+    if (DecodeGR16RegisterClass(MI, Rd, Address, this) != MCDisassembler::Success)
+      return MCDisassembler::Fail;
     return MCDisassembler::Success;
   }
 
@@ -291,9 +309,58 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
     return MCDisassembler::Success;
   }
 
+  // Check Format 2: Dual operand (source general, dest register)
+  if ((Insn & 0xC000) == 0x0000) {
+    unsigned Op6 = (Insn >> 10) & 0x3F;
+    unsigned D = (Insn >> 6) & 0xF;
+    unsigned Ts = (Insn >> 4) & 0x3;
+    unsigned S = Insn & 0xF;
+
+    switch (Op6) {
+    case 0x0A: { // XOR
+      if (Ts != 0)
+        return MCDisassembler::Fail;
+      MI.setOpcode(TMS9900::XORrr);
+      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      return MCDisassembler::Success;
+    }
+    case 0x0E: { // MPY (hardcoded Rd=R0)
+      if (Ts != 0 || D != 0)
+        return MCDisassembler::Fail;
+      MI.setOpcode(TMS9900::MPYrr);
+      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      return MCDisassembler::Success;
+    }
+    case 0x0F: { // DIV (hardcoded Rd=R0)
+      if (Ts != 0 || D != 0)
+        return MCDisassembler::Fail;
+      MI.setOpcode(TMS9900::DIVrr);
+      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      return MCDisassembler::Success;
+    }
+    default:
+      break;
+    }
+  }
+
   // Check Format 11: Single-word instructions
   if (Insn == RTWP_OPCODE) {
     MI.setOpcode(TMS9900::RTWP);
+    return MCDisassembler::Success;
+  }
+  if (Insn == IDLE_OPCODE) {
+    MI.setOpcode(TMS9900::IDLE);
+    return MCDisassembler::Success;
+  }
+  if (Insn == RSET_OPCODE) {
+    MI.setOpcode(TMS9900::RSET);
     return MCDisassembler::Success;
   }
 
@@ -528,6 +595,26 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
       if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
         return MCDisassembler::Fail;
       if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      return MCDisassembler::Success;
+    }
+
+    // Handle auto-increment store (Ts=0, Td=3) - e.g., MOV R9,*R10+
+    if (Ts == 0 && Td == 3) {
+      unsigned Opcode = 0;
+      switch (Op4) {
+      case 0xC: Opcode = TMS9900::MOVmpi; break;
+      case 0xD: Opcode = TMS9900::MOVBmpi; break;
+      default:
+        return MCDisassembler::Fail;
+      }
+      MI.setOpcode(Opcode);
+      // MOVmpi: (outs $rd_wb), (ins $rd, $rs)
+      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
         return MCDisassembler::Fail;
       if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
         return MCDisassembler::Fail;
