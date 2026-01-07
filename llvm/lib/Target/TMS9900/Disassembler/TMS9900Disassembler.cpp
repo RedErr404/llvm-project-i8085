@@ -261,6 +261,23 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
     return MCDisassembler::Success;
   }
 
+  // Check Format 5: CRU single-bit (SBO/SBZ/TB)
+  if ((Insn & 0xFF00) == 0x1D00 || (Insn & 0xFF00) == 0x1E00 ||
+      (Insn & 0xFF00) == 0x1F00) {
+    unsigned Opcode = 0;
+    switch ((Insn >> 8) & 0xFF) {
+    case 0x1D: Opcode = TMS9900::SBO; break;
+    case 0x1E: Opcode = TMS9900::SBZ; break;
+    case 0x1F: Opcode = TMS9900::TB; break;
+    default:
+      return MCDisassembler::Fail;
+    }
+    MI.setOpcode(Opcode);
+    int8_t Disp = static_cast<int8_t>(Insn & 0xFF);
+    MI.addOperand(MCOperand::createImm(Disp));
+    return MCDisassembler::Success;
+  }
+
   // Check Format 6: Jump instructions (0001 xxxx dddd dddd)
   if ((Insn & 0xF000) == 0x1000) {
     unsigned JmpOpcode = (Insn >> 8) & 0xFF;
@@ -309,7 +326,7 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
     return MCDisassembler::Success;
   }
 
-  // Check Format 2: Dual operand (source general, dest register)
+  // Check Format 2/4: Dual operand and CRU multi-bit
   if ((Insn & 0xC000) == 0x0000) {
     unsigned Op6 = (Insn >> 10) & 0x3F;
     unsigned D = (Insn >> 6) & 0xF;
@@ -329,6 +346,38 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
         return MCDisassembler::Fail;
       return MCDisassembler::Success;
     }
+    case 0x0B: { // XOP
+      unsigned Opcode = 0;
+      if (Ts == 0)
+        Opcode = TMS9900::XOPr;
+      else if (Ts == 1)
+        Opcode = TMS9900::XOPi;
+      else if (Ts == 3)
+        Opcode = TMS9900::XOPpim;
+      else if (Ts == 2) {
+        if (Bytes.size() < 4) return MCDisassembler::Fail;
+        uint16_t Extra = support::endian::read16be(Bytes.data() + 2);
+        Size = 4;
+        if (S == 0) {
+          MI.setOpcode(TMS9900::XOPam);
+          MI.addOperand(MCOperand::createImm(Extra));
+        } else {
+          MI.setOpcode(TMS9900::XOPxm);
+          MI.addOperand(MCOperand::createImm(Extra));
+          if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+        }
+        MI.addOperand(MCOperand::createImm(D));
+        return MCDisassembler::Success;
+      }
+      if (Opcode == 0)
+        return MCDisassembler::Fail;
+      MI.setOpcode(Opcode);
+      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      MI.addOperand(MCOperand::createImm(D));
+      return MCDisassembler::Success;
+    }
     case 0x0E: { // MPY (hardcoded Rd=R0)
       if (Ts != 0 || D != 0)
         return MCDisassembler::Fail;
@@ -343,6 +392,40 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
       MI.setOpcode(TMS9900::DIVrr);
       if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
         return MCDisassembler::Fail;
+      return MCDisassembler::Success;
+    }
+    case 0x0C: // LDCR
+    case 0x0D: { // STCR
+      bool IsLoad = (Op6 == 0x0C);
+      unsigned Opcode = 0;
+      if (Ts == 0)
+        Opcode = IsLoad ? TMS9900::LDCRr : TMS9900::STCRr;
+      else if (Ts == 1)
+        Opcode = IsLoad ? TMS9900::LDCRi : TMS9900::STCRi;
+      else if (Ts == 3)
+        Opcode = IsLoad ? TMS9900::LDCRpim : TMS9900::STCRpim;
+      else if (Ts == 2) {
+        if (Bytes.size() < 4) return MCDisassembler::Fail;
+        uint16_t Extra = support::endian::read16be(Bytes.data() + 2);
+        Size = 4;
+        if (S == 0) {
+          MI.setOpcode(IsLoad ? TMS9900::LDCRam : TMS9900::STCRam);
+          MI.addOperand(MCOperand::createImm(Extra));
+        } else {
+          MI.setOpcode(IsLoad ? TMS9900::LDCRxm : TMS9900::STCRxm);
+          MI.addOperand(MCOperand::createImm(Extra));
+          if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+        }
+        MI.addOperand(MCOperand::createImm(D));
+        return MCDisassembler::Success;
+      }
+      if (Opcode == 0)
+        return MCDisassembler::Fail;
+      MI.setOpcode(Opcode);
+      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      MI.addOperand(MCOperand::createImm(D));
       return MCDisassembler::Success;
     }
     default:
@@ -407,7 +490,9 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
     uint16_t Op6 = Insn & 0xFFC0;  // Opcode without Ts/S
     bool needsTiedOperand = false;  // For instructions with $rd = $rs constraint
     switch (Op6) {
+    case 0x0400: Opcode = TMS9900::BLWP; break;
     case 0x0440: Opcode = TMS9900::Br; break;
+    case 0x0480: Opcode = TMS9900::X; break;
     case 0x04C0: Opcode = TMS9900::CLRr; break;
     case 0x0500: Opcode = TMS9900::NEGr; needsTiedOperand = true; break;
     case 0x0540: Opcode = TMS9900::INVr; needsTiedOperand = true; break;
@@ -425,6 +510,45 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
 
     if (Opcode == 0)
       return MCDisassembler::Fail;
+
+    // BLWP and X support general addressing modes (incl. symbolic/indexed)
+    if (Opcode == TMS9900::BLWP || Opcode == TMS9900::X) {
+      bool IsBLWP = (Opcode == TMS9900::BLWP);
+      if (Ts == 2) {
+        if (Bytes.size() < 4) return MCDisassembler::Fail;
+        uint16_t Extra = support::endian::read16be(Bytes.data() + 2);
+        Size = 4;
+        if (S == 0) {
+          MI.setOpcode(IsBLWP ? TMS9900::BLWP_sym : TMS9900::X_sym);
+          MI.addOperand(MCOperand::createImm(Extra));
+        } else {
+          MI.setOpcode(IsBLWP ? TMS9900::BLWP_idx : TMS9900::X_idx);
+          MI.addOperand(MCOperand::createImm(Extra));
+          if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+        }
+        return MCDisassembler::Success;
+      }
+      if (Ts == 3) {
+        MI.setOpcode(IsBLWP ? TMS9900::BLWP_pim : TMS9900::X_pim);
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 1) {
+        MI.setOpcode(IsBLWP ? TMS9900::BLWP : TMS9900::X);
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 0) {
+        MI.setOpcode(IsBLWP ? TMS9900::BLWP_reg : TMS9900::X_reg);
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      return MCDisassembler::Fail;
+    }
 
     // Special case: BL with symbolic addressing
     if (Opcode == TMS9900::BL && Ts == 2 && S == 0) {

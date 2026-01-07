@@ -24,6 +24,7 @@
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/StringSaver.h"
 
 using namespace llvm;
@@ -132,6 +133,30 @@ public:
 
   // Type checking methods required by TableGen-generated code
   bool isTMS9900Imm() const { return Kind == k_Imm; }
+  bool isTMS9900Imm4() const {
+    if (Kind != k_Imm)
+      return false;
+    int64_t Value;
+    if (!Imm->evaluateAsAbsolute(Value))
+      return false;
+    return isUInt<4>(Value);
+  }
+  bool isTMS9900CRUCount() const {
+    if (Kind != k_Imm)
+      return false;
+    int64_t Value;
+    if (!Imm->evaluateAsAbsolute(Value))
+      return false;
+    return isUInt<4>(Value);
+  }
+  bool isTMS9900CRUDisp() const {
+    if (Kind != k_Imm)
+      return false;
+    int64_t Value;
+    if (!Imm->evaluateAsAbsolute(Value))
+      return false;
+    return isInt<8>(Value);
+  }
   bool isTMS9900Mem() const { return Kind == k_Mem; }
   bool isTMS9900IndReg() const { return Kind == k_IndReg; }
   bool isTMS9900PostIndReg() const { return Kind == k_PostIndReg; }

@@ -98,6 +98,24 @@ def TMS9900ImmAsmOperand : AsmOperandClass {
   let DiagnosticType = "InvalidImm";
 }
 
+def TMS9900Imm4AsmOperand : AsmOperandClass {
+  let Name = "TMS9900Imm4";
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isTMS9900Imm4";
+}
+
+def TMS9900CRUCountAsmOperand : AsmOperandClass {
+  let Name = "TMS9900CRUCount";
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isTMS9900CRUCount";
+}
+
+def TMS9900CRUDispAsmOperand : AsmOperandClass {
+  let Name = "TMS9900CRUDisp";
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isTMS9900CRUDisp";
+}
+
 // Memory operand class (symbolic: @LABEL or indexed: @offset(Rn))
 def TMS9900MemAsmOperand : AsmOperandClass {
   let Name = "TMS9900Mem";
@@ -133,6 +151,21 @@ def TMS9900BrTargetAsmOperand : AsmOperandClass {
 // 16-bit immediate
 def imm16 : Operand<i16> {
   let ParserMatchClass = TMS9900ImmAsmOperand;
+}
+
+// 4-bit immediate
+def imm4 : Operand<i16> {
+  let ParserMatchClass = TMS9900Imm4AsmOperand;
+}
+
+// CRU count (0-15, 0 means 16 bits)
+def cru_count : Operand<i16> {
+  let ParserMatchClass = TMS9900CRUCountAsmOperand;
+}
+
+// CRU signed displacement (-128..127)
+def cru_disp8 : Operand<i16> {
+  let ParserMatchClass = TMS9900CRUDispAsmOperand;
 }
 
 // 8-bit signed displacement for jumps (word offset, so range is -256 to +254 bytes)
@@ -809,6 +842,60 @@ def BL_ext : TMS9900Inst<(outs), (ins calltarget:$target),
   let isCodeGenOnly = 1;
 }
 
+// BLWP - Branch and Load Workspace Pointer (general addressing)
+def BLWP : Format3_IndReg<0b0000010000, (outs), (ins GR16:$rs),
+                          "BLWP\t*$rs",
+                          []> {
+  let isCall = 1;
+}
+
+def BLWP_reg : Format3_Reg<0b0000010000, (outs), (ins GR16:$rs),
+                           "BLWP\t$rs",
+                           []> {
+  let isCall = 1;
+}
+
+def BLWP_sym : Format3_Sym<0b0000010000, (outs), (ins symaddr:$addr),
+                           "BLWP\t@$addr",
+                           []> {
+  let isCall = 1;
+}
+
+def BLWP_idx : Format3_Idx<0b0000010000, (outs),
+                           (ins i16imm:$offset, GR16:$ri),
+                           "BLWP\t@${offset}(${ri})",
+                           []> {
+  let isCall = 1;
+}
+
+def BLWP_pim : Format3_AutoInc<0b0000010000, (outs), (ins GR16:$rs),
+                               "BLWP\t*${rs}+",
+                               []> {
+  let isCall = 1;
+}
+
+// X - Execute instruction (general addressing)
+def X : Format3_IndReg<0b0000010010, (outs), (ins GR16:$rs),
+                       "X\t*$rs",
+                       []>;
+
+def X_reg : Format3_Reg<0b0000010010, (outs), (ins GR16:$rs),
+                        "X\t$rs",
+                        []>;
+
+def X_sym : Format3_Sym<0b0000010010, (outs), (ins symaddr:$addr),
+                        "X\t@$addr",
+                        []>;
+
+def X_idx : Format3_Idx<0b0000010010, (outs),
+                        (ins i16imm:$offset, GR16:$ri),
+                        "X\t@${offset}(${ri})",
+                        []>;
+
+def X_pim : Format3_AutoInc<0b0000010010, (outs), (ins GR16:$rs),
+                            "X\t*${rs}+",
+                            []>;
+
 // RTWP - Return with workspace pointer (full context restore)
 // Used for returning from interrupt handlers
 def RTWP : Format11<0b0000001110000000, (outs), (ins),
@@ -855,6 +942,89 @@ let Uses = [R0, R1], Defs = [R0, R1] in
 def DIVrr : Format2_Reg_R0<0b001111, (outs), (ins GR16:$rs),
                            "DIV\t$rs,R0",
                            []>;
+
+//===----------------------------------------------------------------------===//
+// XOP (Extended Operation)
+//===----------------------------------------------------------------------===//
+
+def XOPr : FormatXOP_Reg<0b001011, (outs), (ins GR16:$rs, imm4:$vec),
+                         "XOP\t$rs,$vec",
+                         []>;
+
+def XOPi : FormatXOP_Ind<0b001011, (outs), (ins GR16:$rs, imm4:$vec),
+                         "XOP\t*$rs,$vec",
+                         []>;
+
+def XOPpim : FormatXOP_AutoInc<0b001011, (outs), (ins GR16:$rs, imm4:$vec),
+                               "XOP\t*${rs}+,$vec",
+                               []>;
+
+def XOPam : FormatXOP_Sym<0b001011, (outs), (ins symaddr:$addr, imm4:$vec),
+                          "XOP\t@$addr,$vec",
+                          []>;
+
+def XOPxm : FormatXOP_Idx<0b001011, (outs),
+                          (ins i16imm:$offset, GR16:$ri, imm4:$vec),
+                          "XOP\t@${offset}(${ri}),$vec",
+                          []>;
+
+//===----------------------------------------------------------------------===//
+// CRU Multi-bit Instructions (LDCR/STCR)
+//===----------------------------------------------------------------------===//
+
+let Uses = [R12] in {
+def LDCRr : Format4_Reg<0b001100, (outs), (ins GR16:$rs, cru_count:$cnt),
+                        "LDCR\t$rs,$cnt",
+                        []>;
+def LDCRi : Format4_Ind<0b001100, (outs), (ins GR16:$rs, cru_count:$cnt),
+                        "LDCR\t*$rs,$cnt",
+                        []>;
+def LDCRpim : Format4_AutoInc<0b001100, (outs), (ins GR16:$rs, cru_count:$cnt),
+                              "LDCR\t*${rs}+,$cnt",
+                              []>;
+def LDCRam : Format4_Sym<0b001100, (outs), (ins symaddr:$addr, cru_count:$cnt),
+                         "LDCR\t@$addr,$cnt",
+                         []>;
+def LDCRxm : Format4_Idx<0b001100, (outs),
+                         (ins i16imm:$offset, GR16:$ri, cru_count:$cnt),
+                         "LDCR\t@${offset}(${ri}),$cnt",
+                         []>;
+
+def STCRr : Format4_Reg<0b001101, (outs), (ins GR16:$rs, cru_count:$cnt),
+                        "STCR\t$rs,$cnt",
+                        []>;
+def STCRi : Format4_Ind<0b001101, (outs), (ins GR16:$rs, cru_count:$cnt),
+                        "STCR\t*$rs,$cnt",
+                        []>;
+def STCRpim : Format4_AutoInc<0b001101, (outs), (ins GR16:$rs, cru_count:$cnt),
+                              "STCR\t*${rs}+,$cnt",
+                              []>;
+def STCRam : Format4_Sym<0b001101, (outs), (ins symaddr:$addr, cru_count:$cnt),
+                         "STCR\t@$addr,$cnt",
+                         []>;
+def STCRxm : Format4_Idx<0b001101, (outs),
+                         (ins i16imm:$offset, GR16:$ri, cru_count:$cnt),
+                         "STCR\t@${offset}(${ri}),$cnt",
+                         []>;
+} // Uses = [R12]
+
+//===----------------------------------------------------------------------===//
+// CRU Single-bit Instructions (SBO/SBZ/TB)
+//===----------------------------------------------------------------------===//
+
+let Uses = [R12] in {
+def SBO : Format5<0b00011101, (outs), (ins cru_disp8:$disp),
+                  "SBO\t$disp",
+                  []>;
+def SBZ : Format5<0b00011110, (outs), (ins cru_disp8:$disp),
+                  "SBZ\t$disp",
+                  []>;
+def TB : Format5<0b00011111, (outs), (ins cru_disp8:$disp),
+                 "TB\t$disp",
+                 []> {
+  let Defs = [ST];
+}
+} // Uses = [R12]
 
 // Pseudo instruction for 16-bit multiply (result = low 16 bits)
 // This is expanded by the custom inserter to:

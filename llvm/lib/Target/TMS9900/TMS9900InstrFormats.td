@@ -304,6 +304,51 @@ class Format3_Reg_R11<bits<10> opcode, dag outs, dag ins, string asmstr,
   let Inst{3-0} = 0b1011;     // R11 (link register)
 }
 
+// Format3 variant with symbolic addressing: @addr
+class Format3_Sym<bits<10> opcode, dag outs, dag ins, string asmstr,
+                  list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<16> addr;  // Symbolic address
+
+  bits<32> Inst;
+
+  let Inst{15-6} = opcode;
+  let Inst{5-4} = 0b10;       // Ts = symbolic/indexed
+  let Inst{3-0} = 0b0000;     // S = 0 (symbolic)
+  let Inst{31-16} = addr;     // Second word: address
+
+  let Size = 4;
+}
+
+// Format3 variant with indexed addressing: @offset(Ri)
+class Format3_Idx<bits<10> opcode, dag outs, dag ins, string asmstr,
+                  list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<16> offset;  // Offset
+  bits<4> ri;       // Index register
+
+  bits<32> Inst;
+
+  let Inst{15-6} = opcode;
+  let Inst{5-4} = 0b10;       // Ts = symbolic/indexed
+  let Inst{3-0} = ri;         // S = index register
+  let Inst{31-16} = offset;   // Second word: offset
+
+  let Size = 4;
+}
+
+// Format3 variant with auto-increment: *Rs+
+class Format3_AutoInc<bits<10> opcode, dag outs, dag ins, string asmstr,
+                      list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> rs;
+  bits<16> Inst;
+
+  let Inst{15-6} = opcode;
+  let Inst{5-4} = 0b11;       // Ts = auto-increment
+  let Inst{3-0} = rs;
+}
+
 //===----------------------------------------------------------------------===//
 // Format 1 with Memory Addressing
 // For load: MOV @addr,Rd or MOV *Rs,Rd
@@ -510,6 +555,199 @@ class Format6<bits<8> opcode, dag outs, dag ins, string asmstr,
 
   let isBranch = 1;
   let isTerminator = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// Format 4: CRU multi-bit
+// [opcode:6][C:4][Ts:2][S:4]
+//===----------------------------------------------------------------------===//
+
+class Format4<bits<6> opcode, dag outs, dag ins, string asmstr,
+              list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> cnt;   // Count field
+  bits<6> src;   // Ts:2 + S:4
+
+  bits<16> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = cnt;
+  let Inst{5-4} = src{5-4};
+  let Inst{3-0} = src{3-0};
+}
+
+class Format4_Reg<bits<6> opcode, dag outs, dag ins, string asmstr,
+                  list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> cnt;
+  bits<4> rs;
+
+  bits<16> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = cnt;
+  let Inst{5-4} = 0b00;
+  let Inst{3-0} = rs;
+}
+
+class Format4_Ind<bits<6> opcode, dag outs, dag ins, string asmstr,
+                  list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> cnt;
+  bits<4> rs;
+
+  bits<16> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = cnt;
+  let Inst{5-4} = 0b01;
+  let Inst{3-0} = rs;
+}
+
+class Format4_AutoInc<bits<6> opcode, dag outs, dag ins, string asmstr,
+                      list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> cnt;
+  bits<4> rs;
+
+  bits<16> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = cnt;
+  let Inst{5-4} = 0b11;
+  let Inst{3-0} = rs;
+}
+
+class Format4_Sym<bits<6> opcode, dag outs, dag ins, string asmstr,
+                  list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> cnt;
+  bits<16> addr;
+
+  bits<32> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = cnt;
+  let Inst{5-4} = 0b10;
+  let Inst{3-0} = 0b0000;
+  let Inst{31-16} = addr;
+
+  let Size = 4;
+}
+
+class Format4_Idx<bits<6> opcode, dag outs, dag ins, string asmstr,
+                  list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> cnt;
+  bits<16> offset;
+  bits<4> ri;
+
+  bits<32> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = cnt;
+  let Inst{5-4} = 0b10;
+  let Inst{3-0} = ri;
+  let Inst{31-16} = offset;
+
+  let Size = 4;
+}
+
+//===----------------------------------------------------------------------===//
+// XOP format (extended operation)
+// [opcode:6][D:4][Ts:2][S:4]
+//===----------------------------------------------------------------------===//
+
+class FormatXOP_Reg<bits<6> opcode, dag outs, dag ins, string asmstr,
+                    list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> vec;
+  bits<4> rs;
+
+  bits<16> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = vec;
+  let Inst{5-4} = 0b00;
+  let Inst{3-0} = rs;
+}
+
+class FormatXOP_Ind<bits<6> opcode, dag outs, dag ins, string asmstr,
+                    list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> vec;
+  bits<4> rs;
+
+  bits<16> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = vec;
+  let Inst{5-4} = 0b01;
+  let Inst{3-0} = rs;
+}
+
+class FormatXOP_AutoInc<bits<6> opcode, dag outs, dag ins, string asmstr,
+                        list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> vec;
+  bits<4> rs;
+
+  bits<16> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = vec;
+  let Inst{5-4} = 0b11;
+  let Inst{3-0} = rs;
+}
+
+class FormatXOP_Sym<bits<6> opcode, dag outs, dag ins, string asmstr,
+                    list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> vec;
+  bits<16> addr;
+
+  bits<32> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = vec;
+  let Inst{5-4} = 0b10;
+  let Inst{3-0} = 0b0000;
+  let Inst{31-16} = addr;
+
+  let Size = 4;
+}
+
+class FormatXOP_Idx<bits<6> opcode, dag outs, dag ins, string asmstr,
+                    list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> vec;
+  bits<16> offset;
+  bits<4> ri;
+
+  bits<32> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = vec;
+  let Inst{5-4} = 0b10;
+  let Inst{3-0} = ri;
+  let Inst{31-16} = offset;
+
+  let Size = 4;
+}
+
+//===----------------------------------------------------------------------===//
+// Format 5: CRU single-bit
+// [opcode:8][disp:8]
+//===----------------------------------------------------------------------===//
+
+class Format5<bits<8> opcode, dag outs, dag ins, string asmstr,
+              list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<8> disp;
+  bits<16> Inst;
+
+  let Inst{15-8} = opcode;
+  let Inst{7-0} = disp;
 }
 
 //===----------------------------------------------------------------------===//
