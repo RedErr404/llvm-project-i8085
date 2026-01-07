@@ -280,6 +280,19 @@ class Format3_Reg<bits<10> opcode, dag outs, dag ins, string asmstr,
   let Inst{3-0} = rs;
 }
 
+// Format3_Reg variant with register indirect addressing (*Rs)
+class Format3_IndReg<bits<10> opcode, dag outs, dag ins, string asmstr,
+                     list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> rs;   // Source/dest register (contains address)
+
+  bits<16> Inst;
+
+  let Inst{15-6} = opcode;
+  let Inst{5-4} = 0b01;       // Ts = register indirect
+  let Inst{3-0} = rs;
+}
+
 // Format3_Reg variant with hardcoded R11 (for RET = B *R11)
 class Format3_Reg_R11<bits<10> opcode, dag outs, dag ins, string asmstr,
                       list<dag> pattern>

@@ -347,9 +347,8 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
     if (Opcode == 0)
       return MCDisassembler::Fail;
 
-    // Special case: BL always uses symbolic addressing with target in second word
-    // (our BL_sym encoding puts Ts=0 but target is in word 2)
-    if (Opcode == TMS9900::BL) {
+    // Special case: BL with symbolic addressing
+    if (Opcode == TMS9900::BL && Ts == 2 && S == 0) {
       if (Bytes.size() < 4) return MCDisassembler::Fail;
       uint16_t Target = support::endian::read16be(Bytes.data() + 2);
       Size = 4;
@@ -360,13 +359,25 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
 
     // Special case: B (branch) with symbolic addressing
     if (Opcode == TMS9900::Br && Ts == 2 && S == 0) {
-      // B @addr - symbolic addressing (Ts=2, S=0)
       if (Bytes.size() < 4) return MCDisassembler::Fail;
       uint16_t Target = support::endian::read16be(Bytes.data() + 2);
       Size = 4;
       MI.setOpcode(TMS9900::B_sym);
       MI.addOperand(MCOperand::createImm(Target));
       return MCDisassembler::Success;
+    }
+
+    // Select the correct opcode for B/BL based on addressing mode
+    if (Opcode == TMS9900::Br) {
+      if (Ts == 0)
+        Opcode = TMS9900::Br_reg;
+      else if (Ts != 1)
+        return MCDisassembler::Fail;
+    } else if (Opcode == TMS9900::BL) {
+      if (Ts == 0)
+        Opcode = TMS9900::BL_reg;
+      else if (Ts != 1)
+        return MCDisassembler::Fail;
     }
 
     MI.setOpcode(Opcode);

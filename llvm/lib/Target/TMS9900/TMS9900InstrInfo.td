@@ -679,10 +679,20 @@ def CI : Format8_Cmp<0b1000, (outs), (ins GR16:$rs, i16imm:$imm),
 // Branch and Jump Instructions
 //===----------------------------------------------------------------------===//
 
-// B - Unconditional Branch (single operand format, but we use register)
-def Br : Format3_Reg<0b0000010001, (outs), (ins GR16:$rs),
-                     "B\t*$rs",
-                     [(brind GR16:$rs)]> {
+// B - Unconditional Branch (single operand format, register indirect)
+def Br : Format3_IndReg<0b0000010001, (outs), (ins GR16:$rs),
+                        "B\t*$rs",
+                        [(brind GR16:$rs)]> {
+  let isBranch = 1;
+  let isTerminator = 1;
+  let isBarrier = 1;
+  let isIndirectBranch = 1;
+}
+
+// B with register direct addressing (rare, but valid)
+def Br_reg : Format3_Reg<0b0000010001, (outs), (ins GR16:$rs),
+                         "B\t$rs",
+                         []> {
   let isBranch = 1;
   let isTerminator = 1;
   let isBarrier = 1;
@@ -745,9 +755,17 @@ def JOP : Format6<0b00011100, (outs), (ins brtarget8:$disp),
 //===----------------------------------------------------------------------===//
 
 // BL - Branch and Link with register indirect (stores return address in R11)
-def BL : Format3_Reg<0b0000011010, (outs), (ins GR16:$rs),
-                     "BL\t*$rs",
-                     [(TMS9900call GR16:$rs)]> {
+def BL : Format3_IndReg<0b0000011010, (outs), (ins GR16:$rs),
+                        "BL\t*$rs",
+                        [(TMS9900call GR16:$rs)]> {
+  let isCall = 1;
+  let Defs = [R11];
+}
+
+// BL with register direct addressing (rare, but valid)
+def BL_reg : Format3_Reg<0b0000011010, (outs), (ins GR16:$rs),
+                         "BL\t$rs",
+                         []> {
   let isCall = 1;
   let Defs = [R11];
 }
