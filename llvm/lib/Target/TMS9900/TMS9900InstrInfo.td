@@ -68,8 +68,7 @@ def TMS9900selectcc : SDNode<"TMS9900ISD::SELECT_CC",
                              SDTypeProfile<1, 5, [SDTCisSameAs<0, 1>,
                                                   SDTCisSameAs<1, 2>,
                                                   SDTCisVT<3, i16>,
-                                                  SDTCisSameAs<4, 5>]>,
-                             [SDNPInGlue]>;
+                                                  SDTCisSameAs<4, 5>]> >;
 
 // Byte store node - stores HIGH byte of i16 register to memory
 // TMS9900 MOVB uses the HIGH byte position, but LLVM uses LOW byte,
@@ -298,9 +297,9 @@ def MOVim : Format1_IndLoad<0b1100, 0, (outs GR16:$rd), (ins GR16:$rs),
 
 // MOV @offset(Ri),Rd - Load indexed
 // Used for stack-relative addressing (locals via SP)
-def MOVxm : Format1_IdxLoad<0b1100, 0, (outs GR16:$rd), (ins i16imm:$offset, GR16:$ri),
+def MOVxm : Format1_IdxLoad<0b1100, 0, (outs GR16:$rd), (ins i16imm:$offset, IdxRegs:$ri),
                             "MOV\t@${offset}(${ri}),$rd",
-                            [(set GR16:$rd, (load (add GR16:$ri, (i16 imm:$offset))))]> {
+                            [(set GR16:$rd, (load (add IdxRegs:$ri, (i16 imm:$offset))))]> {
   let mayLoad = 1;
 }
 } // Defs = [ST]
@@ -326,9 +325,9 @@ def MOVmi : Format1_IndStore<0b1100, 0, (outs), (ins GR16:$rd, GR16:$rs),
 
 // MOV Rs,@offset(Ri) - Store indexed
 // Used for stack-relative addressing (locals via SP)
-def MOVmx : Format1_IdxStore<0b1100, 0, (outs), (ins i16imm:$offset, GR16:$ri, GR16:$rs),
+def MOVmx : Format1_IdxStore<0b1100, 0, (outs), (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
                              "MOV\t$rs,@${offset}(${ri})",
-                             [(store GR16:$rs, (add GR16:$ri, (i16 imm:$offset)))]> {
+                             [(store GR16:$rs, (add IdxRegs:$ri, (i16 imm:$offset)))]> {
   let mayStore = 1;
 }
 } // Defs = [ST]
@@ -343,7 +342,7 @@ def MOVmx : Format1_IdxStore<0b1100, 0, (outs), (ins i16imm:$offset, GR16:$ri, G
 // This is a pseudo that will be printed by custom code in TMS9900AsmPrinter
 // or expanded by TMS9900MCInstLower
 let Defs = [ST], mayLoad = 1, isCodeGenOnly = 1, isPseudo = 1 in
-def MOV_FI_Load : TMS9900Inst<(outs GR16:$rd), (ins GR16:$base, i16imm:$offset),
+def MOV_FI_Load : TMS9900Inst<(outs GR16:$rd), (ins IdxRegs:$base, i16imm:$offset),
                               "MOV\t@${offset}(${base}),$rd",
                               []> {
   let Size = 4;  // instruction word + offset word
@@ -353,7 +352,7 @@ def MOV_FI_Load : TMS9900Inst<(outs GR16:$rd), (ins GR16:$base, i16imm:$offset),
 // This is a pseudo that will be printed by custom code in TMS9900AsmPrinter
 // or expanded by TMS9900MCInstLower
 let Defs = [ST], mayStore = 1, isCodeGenOnly = 1, isPseudo = 1 in
-def MOV_FI_Store : TMS9900Inst<(outs), (ins GR16:$base, i16imm:$offset, GR16:$rs),
+def MOV_FI_Store : TMS9900Inst<(outs), (ins IdxRegs:$base, i16imm:$offset, GR16:$rs),
                                "MOV\t$rs,@${offset}(${base})",
                                []> {
   let Size = 4;  // instruction word + offset word
@@ -376,9 +375,9 @@ def MOVBim : Format1_IndLoad<0b1100, 1, (outs GR16:$rd), (ins GR16:$rs),
 }
 
 // MOVB @offset(Ri),Rd - Load byte indexed
-def MOVBxm : Format1_IdxLoad<0b1100, 1, (outs GR16:$rd), (ins i16imm:$offset, GR16:$ri),
+def MOVBxm : Format1_IdxLoad<0b1100, 1, (outs GR16:$rd), (ins i16imm:$offset, IdxRegs:$ri),
                              "MOVB\t@${offset}(${ri}),$rd",
-                             [(set GR16:$rd, (TMS9900byteload (add GR16:$ri, (i16 imm:$offset))))]> {
+                             [(set GR16:$rd, (TMS9900byteload (add IdxRegs:$ri, (i16 imm:$offset))))]> {
   let mayLoad = 1;
 }
 
@@ -405,9 +404,9 @@ def MOVBmi : Format1_IndStore<0b1100, 1, (outs), (ins GR16:$rd, GR16:$rs),
 }
 
 // MOVB Rs,@offset(Ri) - Store byte indexed
-def MOVBmx : Format1_IdxStore<0b1100, 1, (outs), (ins i16imm:$offset, GR16:$ri, GR16:$rs),
+def MOVBmx : Format1_IdxStore<0b1100, 1, (outs), (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
                               "MOVB\t$rs,@${offset}(${ri})",
-                              [(TMS9900bytestore GR16:$rs, (add GR16:$ri, (i16 imm:$offset)))]> {
+                              [(TMS9900bytestore GR16:$rs, (add IdxRegs:$ri, (i16 imm:$offset)))]> {
   let mayStore = 1;
 }
 
@@ -890,7 +889,7 @@ def BLWP_sym : Format3_Sym<0b0000010000, (outs), (ins symaddr:$addr),
 }
 
 def BLWP_idx : Format3_Idx<0b0000010000, (outs),
-                           (ins i16imm:$offset, GR16:$ri),
+                          (ins i16imm:$offset, IdxRegs:$ri),
                            "BLWP\t@${offset}(${ri})",
                            []> {
   let isCall = 1;
@@ -916,7 +915,7 @@ def X_sym : Format3_Sym<0b0000010010, (outs), (ins symaddr:$addr),
                         []>;
 
 def X_idx : Format3_Idx<0b0000010010, (outs),
-                        (ins i16imm:$offset, GR16:$ri),
+                        (ins i16imm:$offset, IdxRegs:$ri),
                         "X\t@${offset}(${ri})",
                         []>;
 
@@ -992,7 +991,7 @@ def XOPam : FormatXOP_Sym<0b001011, (outs), (ins symaddr:$addr, imm4:$vec),
                           []>;
 
 def XOPxm : FormatXOP_Idx<0b001011, (outs),
-                          (ins i16imm:$offset, GR16:$ri, imm4:$vec),
+                          (ins i16imm:$offset, IdxRegs:$ri, imm4:$vec),
                           "XOP\t@${offset}(${ri}),$vec",
                           []>;
 
@@ -1014,7 +1013,7 @@ def LDCRam : Format4_Sym<0b001100, (outs), (ins symaddr:$addr, cru_count:$cnt),
                          "LDCR\t@$addr,$cnt",
                          []>;
 def LDCRxm : Format4_Idx<0b001100, (outs),
-                         (ins i16imm:$offset, GR16:$ri, cru_count:$cnt),
+                         (ins i16imm:$offset, IdxRegs:$ri, cru_count:$cnt),
                          "LDCR\t@${offset}(${ri}),$cnt",
                          []>;
 
@@ -1031,7 +1030,7 @@ def STCRam : Format4_Sym<0b001101, (outs), (ins symaddr:$addr, cru_count:$cnt),
                          "STCR\t@$addr,$cnt",
                          []>;
 def STCRxm : Format4_Idx<0b001101, (outs),
-                         (ins i16imm:$offset, GR16:$ri, cru_count:$cnt),
+                         (ins i16imm:$offset, IdxRegs:$ri, cru_count:$cnt),
                          "STCR\t@${offset}(${ri}),$cnt",
                          []>;
 } // Uses = [R12]

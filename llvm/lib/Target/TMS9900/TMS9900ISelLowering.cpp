@@ -98,8 +98,10 @@ TMS9900TargetLowering::TMS9900TargetLowering(const TargetMachine &TM,
   setStackPointerRegisterToSaveRestore(TMS9900::R10);
 
   // TMS9900 is big-endian
-  setBooleanContents(ZeroOrOneBooleanContent);
-  setBooleanVectorContents(ZeroOrOneBooleanContent);
+  // Use all-ones for true so bitwise boolean expansions (AND/OR/INV)
+  // remain correct in integer legalization.
+  setBooleanContents(ZeroOrNegativeOneBooleanContent);
+  setBooleanVectorContents(ZeroOrNegativeOneBooleanContent);
 
   // TMS9900 has no atomic instructions - it's a simple single-core CPU
   // with no caches or memory barriers. All memory operations are inherently
@@ -154,6 +156,7 @@ TMS9900TargetLowering::TMS9900TargetLowering(const TargetMachine &TM,
 
   // Branch handling
   setOperationAction(ISD::BR_CC, MVT::i16, Custom);
+  setOperationAction(ISD::BR_CC, MVT::i32, Custom);
   setOperationAction(ISD::BRCOND, MVT::Other, Custom);
 
   // Switch/jump table support
@@ -244,8 +247,9 @@ TMS9900TargetLowering::TMS9900TargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::SELECT, MVT::i32, Expand);
   setOperationAction(ISD::SELECT_CC, MVT::i32, Expand);
 
-  // SETCC for i16 - needed for 32-bit expansions
-  setOperationAction(ISD::SETCC, MVT::i16, Expand);
+  // SETCC for i16 - custom to keep compare/branch adjacent (flags are fragile)
+  setOperationAction(ISD::SETCC, MVT::i16, Custom);
+  setOperationAction(ISD::SETCC, MVT::i32, Custom);
 
   // Set minimum function alignment
   setMinFunctionAlignment(Align(2));
@@ -395,6 +399,8 @@ SDValue TMS9900TargetLowering::LowerOperation(SDValue Op,
     return LowerBR_CC(Op, DAG);
   case ISD::BRCOND:
     return LowerBRCOND(Op, DAG);
+  case ISD::SETCC:
+    return LowerSETCC(Op, DAG);
   case ISD::SELECT_CC:
     return LowerSELECT_CC(Op, DAG);
   case ISD::SHL_PARTS:
@@ -752,6 +758,11 @@ SDValue TMS9900TargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
   SDValue Dest = Op.getOperand(4);
   SDLoc DL(Op);
 
+  if (LHS.getValueType() == MVT::i32) {
+    SDValue Cond = DAG.getSetCC(DL, MVT::i16, LHS, RHS, CC);
+    return DAG.getNode(ISD::BRCOND, DL, MVT::Other, Chain, Cond, Dest);
+  }
+
   // Normalize operand order so the compare computes (LHS - RHS).
   // TMS9900 C/CI set flags based on (dest - src). For register compares,
   // that means dest is the second operand (C src,dst). For immediate compares,
@@ -802,12 +813,26 @@ SDValue TMS9900TargetLowering::LowerBRCOND(SDValue Op,
     LHS = Cond.getOperand(0);
     RHS = Cond.getOperand(1);
     CC = cast<CondCodeSDNode>(Cond.getOperand(2))->get();
+    if (LHS.getValueType() != MVT::i16) {
+      // Let non-i16 SETCC lower normally; branch on the computed boolean.
+      LHS = SDValue();
+      RHS = SDValue();
+    }
   } else {
     if (Cond.getValueType() != MVT::i16) {
       Cond = DAG.getNode(ISD::ZERO_EXTEND, DL, MVT::i16, Cond);
     }
     LHS = Cond;
     RHS = DAG.getConstant(0, DL, MVT::i16);
+  }
+
+  if (!LHS.getNode()) {
+    if (Cond.getValueType() != MVT::i16) {
+      Cond = DAG.getNode(ISD::ZERO_EXTEND, DL, MVT::i16, Cond);
+    }
+    LHS = Cond;
+    RHS = DAG.getConstant(0, DL, MVT::i16);
+    CC = ISD::SETNE;
   }
 
   auto isImm = [](SDValue V) {
@@ -835,6 +860,82 @@ SDValue TMS9900TargetLowering::LowerBRCOND(SDValue Op,
                      DAG.getConstant(CC, DL, MVT::i16), Cmp);
 }
 
+SDValue TMS9900TargetLowering::LowerSETCC(SDValue Op,
+                                          SelectionDAG &DAG) const {
+  SDValue LHS = Op.getOperand(0);
+  SDValue RHS = Op.getOperand(1);
+  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
+  SDLoc DL(Op);
+
+  if (LHS.getValueType() == MVT::i16) {
+    SDValue TrueVal = DAG.getAllOnesConstant(DL, MVT::i16);
+    SDValue FalseVal = DAG.getConstant(0, DL, MVT::i16);
+    SDValue Sel = DAG.getSelectCC(DL, LHS, RHS, TrueVal, FalseVal, CC);
+    return Sel;
+  }
+
+  if (LHS.getValueType() != MVT::i32)
+    return SDValue();
+
+  SDValue Shift = DAG.getConstant(16, DL, MVT::i16);
+  SDValue LHSHi = DAG.getNode(ISD::TRUNCATE, DL, MVT::i16,
+                              DAG.getNode(ISD::SRL, DL, MVT::i32, LHS, Shift));
+  SDValue RHSHi = DAG.getNode(ISD::TRUNCATE, DL, MVT::i16,
+                              DAG.getNode(ISD::SRL, DL, MVT::i32, RHS, Shift));
+  SDValue LHSLo = DAG.getNode(ISD::TRUNCATE, DL, MVT::i16, LHS);
+  SDValue RHSLo = DAG.getNode(ISD::TRUNCATE, DL, MVT::i16, RHS);
+
+  auto setcc16 = [&](SDValue A, SDValue B, ISD::CondCode Cc) {
+    return DAG.getSetCC(DL, MVT::i16, A, B, Cc);
+  };
+  auto And = [&](SDValue A, SDValue B) {
+    return DAG.getNode(ISD::AND, DL, MVT::i16, A, B);
+  };
+  auto Or = [&](SDValue A, SDValue B) {
+    return DAG.getNode(ISD::OR, DL, MVT::i16, A, B);
+  };
+
+  SDValue HiEq = setcc16(LHSHi, RHSHi, ISD::SETEQ);
+  SDValue HiNe = setcc16(LHSHi, RHSHi, ISD::SETNE);
+  SDValue LoEq = setcc16(LHSLo, RHSLo, ISD::SETEQ);
+  SDValue LoNe = setcc16(LHSLo, RHSLo, ISD::SETNE);
+
+  SDValue HiLtS = setcc16(LHSHi, RHSHi, ISD::SETLT);
+  SDValue HiGtS = setcc16(LHSHi, RHSHi, ISD::SETGT);
+  SDValue HiLtU = setcc16(LHSHi, RHSHi, ISD::SETULT);
+  SDValue HiGtU = setcc16(LHSHi, RHSHi, ISD::SETUGT);
+
+  SDValue LoLtU = setcc16(LHSLo, RHSLo, ISD::SETULT);
+  SDValue LoGtU = setcc16(LHSLo, RHSLo, ISD::SETUGT);
+  SDValue LoLeU = setcc16(LHSLo, RHSLo, ISD::SETULE);
+  SDValue LoGeU = setcc16(LHSLo, RHSLo, ISD::SETUGE);
+
+  switch (CC) {
+  case ISD::SETEQ:
+    return And(HiEq, LoEq);
+  case ISD::SETNE:
+    return Or(HiNe, LoNe);
+  case ISD::SETLT:
+    return Or(HiLtS, And(HiEq, LoLtU));
+  case ISD::SETGT:
+    return Or(HiGtS, And(HiEq, LoGtU));
+  case ISD::SETLE:
+    return Or(HiLtS, And(HiEq, LoLeU));
+  case ISD::SETGE:
+    return Or(HiGtS, And(HiEq, LoGeU));
+  case ISD::SETULT:
+    return Or(HiLtU, And(HiEq, LoLtU));
+  case ISD::SETUGT:
+    return Or(HiGtU, And(HiEq, LoGtU));
+  case ISD::SETULE:
+    return Or(HiLtU, And(HiEq, LoLeU));
+  case ISD::SETUGE:
+    return Or(HiGtU, And(HiEq, LoGeU));
+  default:
+    llvm_unreachable("Unsupported SETCC for i32");
+  }
+}
+
 SDValue TMS9900TargetLowering::LowerSELECT_CC(SDValue Op,
                                                SelectionDAG &DAG) const {
   SDValue LHS = Op.getOperand(0);
@@ -844,13 +945,11 @@ SDValue TMS9900TargetLowering::LowerSELECT_CC(SDValue Op,
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(4))->get();
   SDLoc DL(Op);
 
-  // Create comparison that produces glue
-  SDValue Cmp = DAG.getNode(TMS9900ISD::CMP, DL, MVT::Glue, LHS, RHS);
-
-  // Create SELECT_CC with 5 operands: trueval, falseval, cc, lhs, rhs
-  // Plus the glue from the comparison
+  // Create SELECT_CC with 5 operands: trueval, falseval, cc, lhs, rhs.
+  // The compare+branch lives in the SELECT16 custom inserter (CMPBR),
+  // so don't emit a separate compare here.
   SDValue Ops[] = {TrueVal, FalseVal, DAG.getConstant(CC, DL, MVT::i16),
-                   LHS, RHS, Cmp};
+                   LHS, RHS};
   return DAG.getNode(TMS9900ISD::SELECT_CC, DL, Op.getValueType(), Ops);
 }
 
@@ -1260,33 +1359,41 @@ TMS9900TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     // Note: Don't add virtual registers as live-ins - that's for physical regs
     // The register allocator will handle virtual register liveness
 
-    // StartBB: Compare and branch (flags reflect LHS - RHS)
-    BuildMI(StartBB, DL, TII.get(TMS9900::Crr))
-        .addReg(RHSReg)
-        .addReg(LHSReg);
+    auto emitCmpBr = [&](MachineBasicBlock *TargetBB, ISD::CondCode Cond) {
+      // CMPBR expects operands ordered so flags reflect (LHS - RHS).
+      BuildMI(StartBB, DL, TII.get(TMS9900::CMPBRrr))
+          .addReg(RHSReg)
+          .addReg(LHSReg)
+          .addImm(Cond)
+          .addMBB(TargetBB);
+    };
 
     // Choose the right conditional jump based on CC
-    unsigned JumpOpc;
     ISD::CondCode CC = static_cast<ISD::CondCode>(CCVal);
     switch (CC) {
-    case ISD::SETEQ:  JumpOpc = TMS9900::JEQ; break;
-    case ISD::SETNE:  JumpOpc = TMS9900::JNE; break;
-    case ISD::SETGT:  JumpOpc = TMS9900::JGT; break;
-    case ISD::SETLT:  JumpOpc = TMS9900::JLT; break;
-    case ISD::SETUGT: JumpOpc = TMS9900::JH;  break;  // High (unsigned >)
-    case ISD::SETULT: JumpOpc = TMS9900::JL;  break;  // Low (unsigned <)
-    case ISD::SETUGE: JumpOpc = TMS9900::JHE; break;  // High or Equal
-    case ISD::SETULE: JumpOpc = TMS9900::JLE; break;  // Low or Equal
+    case ISD::SETEQ:
+    case ISD::SETNE:
+    case ISD::SETGT:
+    case ISD::SETLT:
+    case ISD::SETUGT:
+    case ISD::SETULT:
+    case ISD::SETUGE:
+    case ISD::SETULE:
+      emitCmpBr(TrueBB, CC);
+      BuildMI(StartBB, DL, TII.get(TMS9900::JMP)).addMBB(FalseBB);
+      StartBB->addSuccessor(TrueBB);
+      StartBB->addSuccessor(FalseBB);
+      goto skip_normal_jump;
     case ISD::SETGE:
       // >= is tricky, need JGT or JEQ. Use JLT to FalseBB instead.
-      BuildMI(StartBB, DL, TII.get(TMS9900::JLT)).addMBB(FalseBB);
+      emitCmpBr(FalseBB, ISD::SETLT);
       BuildMI(StartBB, DL, TII.get(TMS9900::JMP)).addMBB(TrueBB);
       StartBB->addSuccessor(FalseBB);
       StartBB->addSuccessor(TrueBB);
       goto skip_normal_jump;
     case ISD::SETLE:
       // <= is JLT or JEQ. Use JGT to FalseBB instead.
-      BuildMI(StartBB, DL, TII.get(TMS9900::JGT)).addMBB(FalseBB);
+      emitCmpBr(FalseBB, ISD::SETGT);
       BuildMI(StartBB, DL, TII.get(TMS9900::JMP)).addMBB(TrueBB);
       StartBB->addSuccessor(FalseBB);
       StartBB->addSuccessor(TrueBB);
@@ -1294,11 +1401,6 @@ TMS9900TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     default:
       llvm_unreachable("Unsupported condition code in SELECT16");
     }
-
-    BuildMI(StartBB, DL, TII.get(JumpOpc)).addMBB(TrueBB);
-    BuildMI(StartBB, DL, TII.get(TMS9900::JMP)).addMBB(FalseBB);
-    StartBB->addSuccessor(TrueBB);
-    StartBB->addSuccessor(FalseBB);
 
 skip_normal_jump:
     // TrueBB: Copy true value to destination
