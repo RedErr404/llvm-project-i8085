@@ -21,6 +21,7 @@
 #include "llvm/CodeGen/TargetFrameLowering.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/MC/MCInstrDesc.h"
 
 using namespace llvm;
 
@@ -109,13 +110,36 @@ bool TMS9900RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
   // For other instructions that just need a register with the address
   // (like legacy code or other uses of frame indices)
 
-  // If offset is 0, simply replace with R10
-  if (Offset == 0) {
+  int TiedOp = MI_ref.getDesc().getOperandConstraint(FIOperandNum,
+                                                     MCOI::TIED_TO);
+  bool TiedToDef = (TiedOp != -1);
+
+  // If offset is 0 and the operand is not tied, simply replace with R10.
+  if (Offset == 0 && !TiedToDef) {
     MI_ref.getOperand(FIOperandNum).ChangeToRegister(TMS9900::R10, false);
     return false;
   }
 
-  // For non-zero offset, we need to compute the effective address.
+  if (TiedToDef) {
+    MachineOperand &DefOp = MI_ref.getOperand(TiedOp);
+    if (DefOp.isReg()) {
+      Register BaseReg = DefOp.getReg();
+
+      // Compute BaseReg = R10 + Offset so the tied def uses the same register.
+      BuildMI(MBB, MI, DL, TII.get(TMS9900::MOVrr), BaseReg)
+          .addReg(TMS9900::R10);
+      if (Offset != 0) {
+        BuildMI(MBB, MI, DL, TII.get(TMS9900::AI), BaseReg)
+            .addReg(BaseReg)
+            .addImm(Offset);
+      }
+
+      MI_ref.getOperand(FIOperandNum).ChangeToRegister(BaseReg, false);
+      return false;
+    }
+  }
+
+  // For non-zero offsets, compute the effective address into a scratch register.
   // Since we can't create new virtual registers at this stage,
   // we use R9 as a scratch register (with caveats) or scavenge.
   // For now, use register scavenger if available, otherwise use R9.
