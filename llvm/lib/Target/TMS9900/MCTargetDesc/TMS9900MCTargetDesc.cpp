@@ -144,13 +144,25 @@ public:
 
   void printInst(const MCInst *MI, uint64_t Address, StringRef Annot,
                  const MCSubtargetInfo &STI, raw_ostream &O) override {
-    printInstruction(MI, Address, O);
+    if (MI->getOpcode() == TMS9900::JMP && MI->getNumOperands() > 0) {
+      const MCOperand &Op = MI->getOperand(0);
+      if (Op.isImm() && Op.getImm() == static_cast<int64_t>(Address + 2)) {
+        O << "NOP";
+        printAnnotation(O, Annot);
+        return;
+      }
+    }
+    if (!printAliasInstr(MI, Address, O))
+      printInstruction(MI, Address, O);
     printAnnotation(O, Annot);
   }
 
   void printInstruction(const MCInst *MI, uint64_t Address, raw_ostream &O);
   static const char *getRegisterName(MCRegister Reg);
   bool printAliasInstr(const MCInst *MI, uint64_t Address, raw_ostream &OS);
+  void printCustomAliasOperand(const MCInst *MI, uint64_t Address,
+                                unsigned OpIdx, unsigned PrintMethodIdx,
+                                raw_ostream &OS);
 
   std::pair<const char *, uint64_t> getMnemonic(const MCInst *MI) override;
 

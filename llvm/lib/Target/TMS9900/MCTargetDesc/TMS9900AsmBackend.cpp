@@ -151,7 +151,17 @@ public:
     // The code generator should emit patterns like:
     //   Jcc label    ; short range conditional
     //   JMP target   ; this can be relaxed if out of range
-    return Inst.getOpcode() == TMS9900::JMP;
+    if (Inst.getOpcode() != TMS9900::JMP)
+      return false;
+
+    // Preserve JMP 0 (used for NOP) even with -mrelax-all.
+    if (Inst.getNumOperands() > 0) {
+      const MCOperand &Op = Inst.getOperand(0);
+      if (Op.isImm() && Op.getImm() == 0)
+        return false;
+    }
+
+    return true;
   }
 
   unsigned getNumFixupKinds() const override {

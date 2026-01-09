@@ -1160,10 +1160,10 @@ def LREX : Format11<0b0000001111100000, (outs), (ins),
                     []>;
 
 //===----------------------------------------------------------------------===//
-// NOP (pseudo - could be various things, using JMP $+2)
+// NOP (alias for JMP $+2)
 //===----------------------------------------------------------------------===//
 
-def NOP : Pseudo<(outs), (ins), "NOP", []>;
+def : InstAlias<"NOP", (JMP 0)>;
 
 //===----------------------------------------------------------------------===//
 // Additional Patterns for Global/Jump Table/Block Addresses

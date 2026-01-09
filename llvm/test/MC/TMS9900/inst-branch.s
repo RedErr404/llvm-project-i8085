@@ -14,6 +14,7 @@ start:
   jno target
   jop target
   jmp target
+  nop
   b @target
   bl @target
 
@@ -45,6 +46,7 @@ target:
 ; CHECK: fixup A - offset: 0, value: target, kind: fixup_tms9900_pcrel_8
 ; CHECK: JMP{{[ \t]+}}target{{[ \t]+}}; encoding: [0x10'A',0x00]
 ; CHECK: fixup A - offset: 0, value: target, kind: fixup_tms9900_pcrel_8
+; CHECK: NOP{{[ \t]+}}; encoding: [0x10,0x00]
 ; CHECK: B{{[ \t]+}}@target{{[ \t]+}}; encoding: [0x04,0x60,A,A]
 ; CHECK: fixup A - offset: 2, value: target, kind: fixup_tms9900_16
 ; CHECK: BL{{[ \t]+}}@target{{[ \t]+}}; encoding: [0x06,0xa0,A,A]
