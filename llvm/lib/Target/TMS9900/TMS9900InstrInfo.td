@@ -281,6 +281,7 @@ def MOVrr : Format1_Reg<0b1100, 0, (outs GR16:$rd), (ins GR16:$rs),
 // Memory Load Instructions
 //===----------------------------------------------------------------------===//
 
+let Defs = [ST] in {
 // MOV @addr,Rd - Load from absolute address
 def MOVam : Format1_SymLoad<0b1100, 0, (outs GR16:$rd), (ins symaddr:$addr),
                             "MOV\t@$addr,$rd",
@@ -302,11 +303,13 @@ def MOVxm : Format1_IdxLoad<0b1100, 0, (outs GR16:$rd), (ins i16imm:$offset, GR1
                             [(set GR16:$rd, (load (add GR16:$ri, (i16 imm:$offset))))]> {
   let mayLoad = 1;
 }
+} // Defs = [ST]
 
 //===----------------------------------------------------------------------===//
 // Memory Store Instructions
 //===----------------------------------------------------------------------===//
 
+let Defs = [ST] in {
 // MOV Rs,@addr - Store to absolute address
 def MOVma : Format1_SymStore<0b1100, 0, (outs), (ins symaddr:$addr, GR16:$rs),
                              "MOV\t$rs,@$addr",
@@ -328,6 +331,7 @@ def MOVmx : Format1_IdxStore<0b1100, 0, (outs), (ins i16imm:$offset, GR16:$ri, G
                              [(store GR16:$rs, (add GR16:$ri, (i16 imm:$offset)))]> {
   let mayStore = 1;
 }
+} // Defs = [ST]
 
 //===----------------------------------------------------------------------===//
 // Frame Index Compatible Load/Store Instructions
@@ -338,7 +342,7 @@ def MOVmx : Format1_IdxStore<0b1100, 0, (outs), (ins i16imm:$offset, GR16:$ri, G
 // MOV @offset(Ri),Rd - Load indexed (frame index compatible)
 // This is a pseudo that will be printed by custom code in TMS9900AsmPrinter
 // or expanded by TMS9900MCInstLower
-let mayLoad = 1, isCodeGenOnly = 1, isPseudo = 1 in
+let Defs = [ST], mayLoad = 1, isCodeGenOnly = 1, isPseudo = 1 in
 def MOV_FI_Load : TMS9900Inst<(outs GR16:$rd), (ins GR16:$base, i16imm:$offset),
                               "MOV\t@${offset}(${base}),$rd",
                               []> {
@@ -348,7 +352,7 @@ def MOV_FI_Load : TMS9900Inst<(outs GR16:$rd), (ins GR16:$base, i16imm:$offset),
 // MOV Rs,@offset(Ri) - Store indexed (frame index compatible)
 // This is a pseudo that will be printed by custom code in TMS9900AsmPrinter
 // or expanded by TMS9900MCInstLower
-let mayStore = 1, isCodeGenOnly = 1, isPseudo = 1 in
+let Defs = [ST], mayStore = 1, isCodeGenOnly = 1, isPseudo = 1 in
 def MOV_FI_Store : TMS9900Inst<(outs), (ins GR16:$base, i16imm:$offset, GR16:$rs),
                                "MOV\t$rs,@${offset}(${base})",
                                []> {
@@ -362,6 +366,7 @@ def MOV_FI_Store : TMS9900Inst<(outs), (ins GR16:$base, i16imm:$offset, GR16:$rs
 // which is created by LowerLOAD, then shifted right to move byte to LOW position.
 //===----------------------------------------------------------------------===//
 
+let Defs = [ST] in {
 // MOVB *Rs,Rd - Load byte indirect
 // Loads byte into upper 8 bits of register
 def MOVBim : Format1_IndLoad<0b1100, 1, (outs GR16:$rd), (ins GR16:$rs),
@@ -383,11 +388,13 @@ def MOVBam : Format1_SymLoad<0b1100, 1, (outs GR16:$rd), (ins symaddr:$addr),
                              [(set GR16:$rd, (TMS9900byteload (TMS9900Wrapper tglobaladdr:$addr)))]> {
   let mayLoad = 1;
 }
+} // Defs = [ST]
 
 //===----------------------------------------------------------------------===//
 // Byte Memory Store Instructions (MOVB)
 //===----------------------------------------------------------------------===//
 
+let Defs = [ST] in {
 // MOVB Rs,*Rd - Store byte indirect
 // Stores upper 8 bits of source register to memory
 // Uses TMS9900bytestore which expects byte in HIGH position
@@ -410,6 +417,7 @@ def MOVBma : Format1_SymStore<0b1100, 1, (outs), (ins symaddr:$addr, GR16:$rs),
                               [(TMS9900bytestore GR16:$rs, (TMS9900Wrapper tglobaladdr:$addr))]> {
   let mayStore = 1;
 }
+} // Defs = [ST]
 
 //===----------------------------------------------------------------------===//
 // Auto-Increment Load Instructions (MOV *Rs+,Rd)
@@ -417,6 +425,7 @@ def MOVBma : Format1_SymStore<0b1100, 1, (outs), (ins symaddr:$addr, GR16:$rs),
 // Word operations increment by 2, byte operations increment by 1
 //===----------------------------------------------------------------------===//
 
+let Defs = [ST] in {
 // MOV *Rs+,Rd - Load word with post-increment
 // Output: $rd = loaded value, $rs_wb = $rs + 2
 def MOVpim : Format1_AutoIncLoad<0b1100, 0, (outs GR16:$rd, GR16:$rs_wb),
@@ -434,12 +443,14 @@ def MOVBpim : Format1_AutoIncLoad<0b1100, 1, (outs GR16:$rd, GR16:$rs_wb),
   let mayLoad = 1;
   let Constraints = "$rs_wb = $rs";
 }
+} // Defs = [ST]
 
 //===----------------------------------------------------------------------===//
 // Auto-Increment Store Instructions (MOV Rs,*Rd+)
 // These store to memory and post-increment the address register
 //===----------------------------------------------------------------------===//
 
+let Defs = [ST] in {
 // MOV Rs,*Rd+ - Store word with post-increment
 // Output: $rd_wb = $rd + 2
 def MOVmpi : Format1_AutoIncStore<0b1100, 0, (outs GR16:$rd_wb),
@@ -457,6 +468,7 @@ def MOVBmpi : Format1_AutoIncStore<0b1100, 1, (outs GR16:$rd_wb),
   let mayStore = 1;
   let Constraints = "$rd_wb = $rd";
 }
+} // Defs = [ST]
 
 // LI - Load Immediate (sets status based on value loaded)
 let Defs = [ST] in

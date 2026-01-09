@@ -92,7 +92,7 @@ TMS9900TargetLowering::TMS9900TargetLowering(const TargetMachine &TM,
   setIndexedStoreAction(ISD::POST_INC, MVT::i8, Legal);
 
   // Set scheduling preference
-  setSchedulingPreference(Sched::RegPressure);
+  setSchedulingPreference(Sched::Source);
 
   // Set stack pointer register
   setStackPointerRegisterToSaveRestore(TMS9900::R10);
@@ -154,7 +154,7 @@ TMS9900TargetLowering::TMS9900TargetLowering(const TargetMachine &TM,
 
   // Branch handling
   setOperationAction(ISD::BR_CC, MVT::i16, Custom);
-  setOperationAction(ISD::BRCOND, MVT::Other, Expand);
+  setOperationAction(ISD::BRCOND, MVT::Other, Custom);
 
   // Switch/jump table support
   // BR_JT is expanded into: load target address from table, branch indirect
@@ -393,6 +393,8 @@ SDValue TMS9900TargetLowering::LowerOperation(SDValue Op,
     return LowerBlockAddress(Op, DAG);
   case ISD::BR_CC:
     return LowerBR_CC(Op, DAG);
+  case ISD::BRCOND:
+    return LowerBRCOND(Op, DAG);
   case ISD::SELECT_CC:
     return LowerSELECT_CC(Op, DAG);
   case ISD::SHL_PARTS:
@@ -781,6 +783,54 @@ SDValue TMS9900TargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
   SDValue Cmp = DAG.getNode(TMS9900ISD::CMP, DL, MVT::Glue, CmpLHS, CmpRHS);
 
   // Create branch with condition
+  return DAG.getNode(TMS9900ISD::BR_CC, DL, MVT::Other, Chain, Dest,
+                     DAG.getConstant(CC, DL, MVT::i16), Cmp);
+}
+
+SDValue TMS9900TargetLowering::LowerBRCOND(SDValue Op,
+                                           SelectionDAG &DAG) const {
+  SDValue Chain = Op.getOperand(0);
+  SDValue Cond = Op.getOperand(1);
+  SDValue Dest = Op.getOperand(2);
+  SDLoc DL(Op);
+
+  ISD::CondCode CC = ISD::SETNE;
+  SDValue LHS;
+  SDValue RHS;
+
+  if (Cond.getOpcode() == ISD::SETCC) {
+    LHS = Cond.getOperand(0);
+    RHS = Cond.getOperand(1);
+    CC = cast<CondCodeSDNode>(Cond.getOperand(2))->get();
+  } else {
+    if (Cond.getValueType() != MVT::i16) {
+      Cond = DAG.getNode(ISD::ZERO_EXTEND, DL, MVT::i16, Cond);
+    }
+    LHS = Cond;
+    RHS = DAG.getConstant(0, DL, MVT::i16);
+  }
+
+  auto isImm = [](SDValue V) {
+    return isa<ConstantSDNode>(V);
+  };
+
+  if (isImm(LHS) && !isImm(RHS)) {
+    std::swap(LHS, RHS);
+    CC = ISD::getSetCCSwappedOperands(CC);
+  }
+
+  SDValue CmpLHS;
+  SDValue CmpRHS;
+  if (isImm(RHS)) {
+    CmpLHS = LHS;
+    CmpRHS = RHS;
+  } else {
+    CmpLHS = RHS;
+    CmpRHS = LHS;
+  }
+
+  SDValue Cmp = DAG.getNode(TMS9900ISD::CMP, DL, MVT::Glue, CmpLHS, CmpRHS);
+
   return DAG.getNode(TMS9900ISD::BR_CC, DL, MVT::Other, Chain, Dest,
                      DAG.getConstant(CC, DL, MVT::i16), Cmp);
 }
