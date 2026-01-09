@@ -102,6 +102,34 @@ void TMS9900DAGToDAGISel::SelectBR_CC(SDNode *N) {
   SDValue TargetNode = CurDAG->getBasicBlock(TargetBB);
   SDValue Glue = (N->getNumOperands() > 3) ? N->getOperand(3) : SDValue();
 
+  if (Glue.getNode() && Glue.getOpcode() == TMS9900ISD::CMP) {
+    SDNode *CmpNode = Glue.getNode();
+    SDValue CmpLHS = CmpNode->getOperand(0);
+    SDValue CmpRHS = CmpNode->getOperand(1);
+    bool RHSImm = isa<ConstantSDNode>(CmpRHS);
+
+    SmallVector<SDValue, 5> Ops;
+    Ops.push_back(CmpLHS);
+    if (RHSImm) {
+      auto *CN = cast<ConstantSDNode>(CmpRHS);
+      Ops.push_back(CurDAG->getTargetConstant(CN->getSExtValue(), DL, MVT::i16));
+    } else {
+      Ops.push_back(CmpRHS);
+    }
+    Ops.push_back(CurDAG->getTargetConstant(CC, DL, MVT::i16));
+    Ops.push_back(TargetNode);
+    Ops.push_back(Chain);
+
+    unsigned PseudoOpc = RHSImm ? TMS9900::CMPBRri : TMS9900::CMPBRrr;
+    SDNode *CmpBrNode = CurDAG->getMachineNode(PseudoOpc, DL, MVT::Other, Ops);
+
+    ReplaceUses(SDValue(N, 0), SDValue(CmpBrNode, 0));
+    CurDAG->RemoveDeadNode(N);
+    if (CmpNode->use_empty())
+      CurDAG->RemoveDeadNode(CmpNode);
+    return;
+  }
+
   // For signed >= and <=, we need both the equality and the inequality case.
   // because TMS9900 doesn't have a single signed >= instruction
   if (CC == ISD::SETGE || CC == ISD::SETLE) {

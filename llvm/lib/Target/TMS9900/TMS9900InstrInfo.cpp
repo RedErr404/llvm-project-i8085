@@ -14,6 +14,7 @@
 #include "TMS9900.h"
 #include "TMS9900Subtarget.h"
 #include "TMS9900TargetMachine.h"
+#include "llvm/CodeGen/ISDOpcodes.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -61,6 +62,33 @@ static unsigned getOppositeCondBranchOpcode(unsigned Opc) {
   case TMS9900::JNC: return TMS9900::JOC;
   default:
     return 0;
+  }
+}
+
+static unsigned getJumpOpcodeForCC(ISD::CondCode CC) {
+  switch (CC) {
+  default:
+    llvm_unreachable("Unknown condition code");
+  case ISD::SETEQ:
+    return TMS9900::JEQ;
+  case ISD::SETNE:
+    return TMS9900::JNE;
+  case ISD::SETGT:
+    return TMS9900::JGT;
+  case ISD::SETLT:
+    return TMS9900::JLT;
+  case ISD::SETGE:
+    return TMS9900::JGT;
+  case ISD::SETLE:
+    return TMS9900::JLT;
+  case ISD::SETUGT:
+    return TMS9900::JH;
+  case ISD::SETUGE:
+    return TMS9900::JHE;
+  case ISD::SETULT:
+    return TMS9900::JL;
+  case ISD::SETULE:
+    return TMS9900::JLE;
   }
 }
 
@@ -365,6 +393,34 @@ bool TMS9900InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   switch (MI.getOpcode()) {
   default:
     return false;
+  case TMS9900::CMPBRrr:
+  case TMS9900::CMPBRri: {
+    bool IsImm = (MI.getOpcode() == TMS9900::CMPBRri);
+    Register LHS = MI.getOperand(0).getReg();
+    MachineBasicBlock *Target = MI.getOperand(3).getMBB();
+    ISD::CondCode CC =
+        static_cast<ISD::CondCode>(MI.getOperand(2).getImm());
+
+    if (IsImm) {
+      int64_t Imm = MI.getOperand(1).getImm();
+      BuildMI(MBB, MI, DL, get(TMS9900::CI)).addReg(LHS).addImm(Imm);
+    } else {
+      Register RHS = MI.getOperand(1).getReg();
+      BuildMI(MBB, MI, DL, get(TMS9900::Crr)).addReg(LHS).addReg(RHS);
+    }
+
+    if (CC == ISD::SETGE || CC == ISD::SETLE) {
+      unsigned SecondOpc = (CC == ISD::SETGE) ? TMS9900::JGT : TMS9900::JLT;
+      BuildMI(MBB, MI, DL, get(TMS9900::JEQ)).addMBB(Target);
+      BuildMI(MBB, MI, DL, get(SecondOpc)).addMBB(Target);
+    } else {
+      unsigned JumpOpc = getJumpOpcodeForCC(CC);
+      BuildMI(MBB, MI, DL, get(JumpOpc)).addMBB(Target);
+    }
+
+    MBB.erase(MI);
+    return true;
+  }
   case TMS9900::RET:
     // Expand RET pseudo to B *R11
     BuildMI(MBB, MI, DL, get(TMS9900::RET_REAL));

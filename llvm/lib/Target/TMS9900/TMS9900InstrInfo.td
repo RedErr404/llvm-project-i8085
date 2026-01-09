@@ -721,6 +721,22 @@ def CI : Format8_Cmp<0b1000, (outs), (ins GR16:$rs, i16imm:$imm),
 }
 
 //===----------------------------------------------------------------------===//
+// Compare + Branch Pseudos (to keep flags adjacent)
+//===----------------------------------------------------------------------===//
+
+let isCodeGenOnly = 1, isPseudo = 1, isBranch = 1, isTerminator = 1,
+    isBarrier = 1 in {
+def CMPBRrr : Pseudo<(outs),
+                     (ins GR16:$lhs, GR16:$rhs, i16imm:$cc, brtarget8:$target),
+                     "# CMPBRrr $lhs, $rhs, $cc, $target",
+                     []>;
+def CMPBRri : Pseudo<(outs),
+                     (ins GR16:$lhs, i16imm:$rhs, i16imm:$cc, brtarget8:$target),
+                     "# CMPBRri $lhs, $rhs, $cc, $target",
+                     []>;
+}
+
+//===----------------------------------------------------------------------===//
 // Branch and Jump Instructions
 //===----------------------------------------------------------------------===//
 
