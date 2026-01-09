@@ -20,6 +20,7 @@
 #include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/CodeGen/TargetFrameLowering.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
+#include "llvm/IR/Function.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/MC/MCInstrDesc.h"
 
@@ -70,6 +71,11 @@ BitVector TMS9900RegisterInfo::getReservedRegs(const MachineFunction &MF) const 
   return Reserved;
 }
 
+bool TMS9900RegisterInfo::requiresRegisterScavenging(
+    const MachineFunction &MF) const {
+  return true;
+}
+
 bool TMS9900RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
                                                int SPAdj,
                                                unsigned FIOperandNum,
@@ -79,6 +85,7 @@ bool TMS9900RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
   MachineFunction &MF = *MBB.getParent();
   const TMS9900Subtarget &Subtarget = MF.getSubtarget<TMS9900Subtarget>();
   const TargetInstrInfo &TII = *Subtarget.getInstrInfo();
+  const TargetRegisterInfo &TRI = *Subtarget.getRegisterInfo();
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   DebugLoc DL = MI_ref.getDebugLoc();
 
@@ -88,7 +95,13 @@ bool TMS9900RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
   // Add the offset from the stack pointer (R10)
   // Stack objects are at negative offsets from the original SP,
   // but we need to compute from the current SP (after prologue allocation)
-  Offset += MFI.getStackSize();
+  int64_t StackAdj = MFI.getStackSize();
+  const Function &F = MF.getFunction();
+  if (MFI.isFixedObjectIndex(FrameIndex) && MFI.hasCalls() &&
+      !F.hasFnAttribute(Attribute::Naked) && !F.hasFnAttribute("interrupt")) {
+    StackAdj += 2; // Account for the saved return address (R11).
+  }
+  Offset += StackAdj;
 
   unsigned Opc = MI_ref.getOpcode();
 
@@ -139,23 +152,32 @@ bool TMS9900RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
     }
   }
 
-  // For non-zero offsets, compute the effective address into a scratch register.
-  // Since we can't create new virtual registers at this stage,
-  // we use R9 as a scratch register (with caveats) or scavenge.
-  // For now, use register scavenger if available, otherwise use R9.
+  // For non-zero offsets, compute the effective address into a scratch
+  // register. We must scavenge here to avoid clobbering a live register.
+  if (!RS)
+    report_fatal_error("TMS9900 requires register scavenging for frame indices");
 
-  Register ScratchReg;
-  if (RS) {
-    ScratchReg = RS->scavengeRegisterBackwards(TMS9900::GR16RegClass, MI,
-                                                /*RestoreAfter=*/false, SPAdj,
-                                                /*AllowSpill=*/false);
-  }
+  const TargetRegisterClass *RC =
+      MI_ref.getRegClassConstraint(FIOperandNum, &TII, &TRI);
+  if (!RC)
+    RC = &TMS9900::GR16RegClass;
+
+  auto RegConflicts = [&](Register Reg) {
+    return MI_ref.readsRegister(Reg, &TRI) ||
+           MI_ref.definesRegister(Reg, &TRI);
+  };
+
+  Register ScratchReg = RS->FindUnusedReg(RC);
+  if (ScratchReg && RegConflicts(ScratchReg))
+    ScratchReg = Register();
 
   if (!ScratchReg) {
-    // Use R9 as a scratch register (this may not be safe in all cases)
-    // A more robust solution would require spilling
-    ScratchReg = TMS9900::R9;
+    ScratchReg = RS->scavengeRegisterBackwards(
+        *RC, MI, /*RestoreAfter=*/true, SPAdj, /*AllowSpill=*/true);
   }
+  if (!ScratchReg)
+    report_fatal_error("TMS9900: failed to scavenge scratch register");
+  RS->setRegUsed(ScratchReg);
 
   // Compute address: ScratchReg = R10 + Offset
   // MOV R10, ScratchReg
