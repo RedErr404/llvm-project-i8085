@@ -105,6 +105,35 @@ bool TMS9900RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
 
   unsigned Opc = MI_ref.getOpcode();
 
+  // Handle LEAfi pseudo - materialize frame address into a register
+  // LEAfi $rd, memri($base, $offset)
+  // Where $base is a frame index, $offset is an immediate
+  // Expands to: MOV R10, $rd; AI $rd, <computed offset>
+  if (Opc == TMS9900::LEAfi) {
+    // Get the destination register (operand 0)
+    Register DestReg = MI_ref.getOperand(0).getReg();
+
+    // memri operand: operand 1 is base (frame index), operand 2 is offset
+    // FIOperandNum should be 1 (the base part of memri)
+    int64_t ExtraOffset = MI_ref.getOperand(FIOperandNum + 1).getImm();
+    int64_t TotalOffset = Offset + ExtraOffset;
+
+    // Build: MOV R10, DestReg
+    BuildMI(MBB, MI, DL, TII.get(TMS9900::MOVrr), DestReg)
+        .addReg(TMS9900::R10);
+
+    // Build: AI DestReg, TotalOffset (only if non-zero)
+    if (TotalOffset != 0) {
+      BuildMI(MBB, MI, DL, TII.get(TMS9900::AI), DestReg)
+          .addReg(DestReg)
+          .addImm(TotalOffset);
+    }
+
+    // Remove the LEAfi pseudo
+    MI_ref.eraseFromParent();
+    return true;
+  }
+
   // Handle MOV_FI_Load and MOV_FI_Store with indexed addressing
   // These instructions have a memri operand: (register, immediate)
   // The frame index is in operand FIOperandNum, and the offset is in FIOperandNum+1

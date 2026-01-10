@@ -358,6 +358,20 @@ def MOV_FI_Store : TMS9900Inst<(outs), (ins IdxRegs:$base, i16imm:$offset, GR16:
   let Size = 4;  // instruction word + offset word
 }
 
+// LEAfi - Load Effective Address of frame index
+// Computes the address of a stack slot into a register.
+// This is expanded during frame index elimination to:
+//   MOV R10, $rd       ; Copy stack pointer to dest
+//   AI  $rd, offset    ; Add frame offset
+// Used when a pointer to a local variable needs to be passed to a function.
+// Uses memri operand which can hold frame index + offset.
+let Defs = [ST], isCodeGenOnly = 1, isPseudo = 1, Uses = [R10] in
+def LEAfi : Pseudo<(outs GR16:$rd), (ins memri:$addr),
+                   "# LEA $rd, $addr",
+                   []> {
+  let Size = 6;  // MOV (2) + AI (4)
+}
+
 //===----------------------------------------------------------------------===//
 // Byte Memory Load Instructions (MOVB)
 // Note: Byte flag = 1, so opcode is 0b1101 for MOVB (vs 0b1100 for MOV)

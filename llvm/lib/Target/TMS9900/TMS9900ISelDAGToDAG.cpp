@@ -102,32 +102,32 @@ void TMS9900DAGToDAGISel::SelectBR_CC(SDNode *N) {
   SDValue TargetNode = CurDAG->getBasicBlock(TargetBB);
   SDValue Glue = (N->getNumOperands() > 3) ? N->getOperand(3) : SDValue();
 
+  // If there's a fused compare, emit the compare instruction first,
+  // then fall through to the branch handling below.
+  // We don't use CMPBRri/CMPBRrr pseudos because they cause problems
+  // with the branch folder (it can't analyze them and corrupts the CFG).
   if (Glue.getNode() && Glue.getOpcode() == TMS9900ISD::CMP) {
     SDNode *CmpNode = Glue.getNode();
     SDValue CmpLHS = CmpNode->getOperand(0);
     SDValue CmpRHS = CmpNode->getOperand(1);
     bool RHSImm = isa<ConstantSDNode>(CmpRHS);
 
-    SmallVector<SDValue, 5> Ops;
-    Ops.push_back(CmpLHS);
+    // Emit the compare instruction
+    SDNode *CmpInstr;
     if (RHSImm) {
       auto *CN = cast<ConstantSDNode>(CmpRHS);
-      Ops.push_back(CurDAG->getTargetConstant(CN->getSExtValue(), DL, MVT::i16));
+      CmpInstr = CurDAG->getMachineNode(TMS9900::CI, DL, MVT::Glue,
+                                         CmpLHS,
+                                         CurDAG->getTargetConstant(CN->getSExtValue(), DL, MVT::i16));
     } else {
-      Ops.push_back(CmpRHS);
+      CmpInstr = CurDAG->getMachineNode(TMS9900::Crr, DL, MVT::Glue,
+                                         CmpLHS, CmpRHS);
     }
-    Ops.push_back(CurDAG->getTargetConstant(CC, DL, MVT::i16));
-    Ops.push_back(TargetNode);
-    Ops.push_back(Chain);
+    Glue = SDValue(CmpInstr, 0);
 
-    unsigned PseudoOpc = RHSImm ? TMS9900::CMPBRri : TMS9900::CMPBRrr;
-    SDNode *CmpBrNode = CurDAG->getMachineNode(PseudoOpc, DL, MVT::Other, Ops);
-
-    ReplaceUses(SDValue(N, 0), SDValue(CmpBrNode, 0));
-    CurDAG->RemoveDeadNode(N);
+    // Clean up the old CMP node
     if (CmpNode->use_empty())
       CurDAG->RemoveDeadNode(CmpNode);
-    return;
   }
 
   // For signed >= and <=, we need both the equality and the inequality case.
@@ -188,12 +188,21 @@ void TMS9900DAGToDAGISel::Select(SDNode *N) {
     SelectBR_CC(N);
     return;
   case ISD::FrameIndex: {
-    // Convert FrameIndex to R10 + offset
-    // The actual offset will be filled in during frame lowering
+    // When a FrameIndex is used as a value (not just as a memory operand),
+    // we need to materialize the actual address into a register.
+    // Generate: LEAfi $rd, memri(fi#N, 0)
+    // This will be expanded during frame index elimination to:
+    //   MOV R10, $rd
+    //   AI  $rd, <computed offset>
+    SDLoc DL(N);
     int FI = cast<FrameIndexSDNode>(N)->getIndex();
+    // Create a TargetFrameIndex - this will become MO_FrameIndex
     SDValue TFI = CurDAG->getTargetFrameIndex(FI, MVT::i16);
-    // For now, just select it as the frame index - register will be substituted later
-    ReplaceNode(N, TFI.getNode());
+    SDValue Zero = CurDAG->getTargetConstant(0, DL, MVT::i16);
+    // LEAfi takes memri operand which is (base, offset)
+    SDNode *LEA = CurDAG->getMachineNode(TMS9900::LEAfi, DL, MVT::i16,
+                                          TFI, Zero);
+    ReplaceNode(N, LEA);
     return;
   }
   case ISD::LOAD: {
