@@ -246,8 +246,14 @@ bool TMS9900InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
     return true;
   }
 
+  bool CanInvert = false;
+  if (!Cond.empty() && Cond[0].isImm()) {
+    SmallVector<MachineOperand, 4> CondCopy(Cond.begin(), Cond.end());
+    CanInvert = !reverseBranchCondition(CondCopy);
+  }
+
   if (!AllowModify && !Cond.empty() && !FBB && TBB && MBB.succ_size() == 2 &&
-      MBB.isLayoutSuccessor(TBB)) {
+      MBB.isLayoutSuccessor(TBB) && CanInvert) {
     for (MachineBasicBlock *Succ : MBB.successors()) {
       if (Succ != TBB) {
         FBB = Succ;
