@@ -97,3 +97,35 @@ yes:
 no:
   ret i16 0
 }
+
+; CHECK-LABEL: test_sle
+; CHECK: C{{[ \t]+}}R1,R0
+; CHECK: JGT{{[ \t]+}}[[SLE_NO:LBB[0-9_]+]]
+
+define i16 @test_sle(i16 %a, i16 %b) {
+entry:
+  %cmp = icmp sle i16 %a, %b
+  br i1 %cmp, label %yes, label %no
+
+yes:
+  ret i16 1
+
+no:
+  ret i16 0
+}
+
+; CHECK-LABEL: test_sge
+; CHECK: C{{[ \t]+}}R1,R0
+; CHECK: JLT{{[ \t]+}}[[SGE_NO:LBB[0-9_]+]]
+
+define i16 @test_sge(i16 %a, i16 %b) {
+entry:
+  %cmp = icmp sge i16 %a, %b
+  br i1 %cmp, label %yes, label %no
+
+yes:
+  ret i16 1
+
+no:
+  ret i16 0
+}

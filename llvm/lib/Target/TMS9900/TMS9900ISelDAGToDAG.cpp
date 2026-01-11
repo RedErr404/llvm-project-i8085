@@ -102,32 +102,35 @@ void TMS9900DAGToDAGISel::SelectBR_CC(SDNode *N) {
   SDValue TargetNode = CurDAG->getBasicBlock(TargetBB);
   SDValue Glue = (N->getNumOperands() > 3) ? N->getOperand(3) : SDValue();
 
-  // If there's a fused compare, emit the compare instruction first,
-  // then fall through to the branch handling below.
-  // We don't use CMPBRri/CMPBRrr pseudos because they cause problems
-  // with the branch folder (it can't analyze them and corrupts the CFG).
+  // If there's a fused compare, emit a CMPBR pseudo to keep the compare
+  // and branch adjacent (flags are otherwise clobbered by intervening insns).
   if (Glue.getNode() && Glue.getOpcode() == TMS9900ISD::CMP) {
     SDNode *CmpNode = Glue.getNode();
     SDValue CmpLHS = CmpNode->getOperand(0);
     SDValue CmpRHS = CmpNode->getOperand(1);
     bool RHSImm = isa<ConstantSDNode>(CmpRHS);
 
-    // Emit the compare instruction
-    SDNode *CmpInstr;
+    SmallVector<SDValue, 5> Ops;
+    Ops.push_back(CmpLHS);
     if (RHSImm) {
       auto *CN = cast<ConstantSDNode>(CmpRHS);
-      CmpInstr = CurDAG->getMachineNode(TMS9900::CI, DL, MVT::Glue,
-                                         CmpLHS,
-                                         CurDAG->getTargetConstant(CN->getSExtValue(), DL, MVT::i16));
+      Ops.push_back(CurDAG->getTargetConstant(CN->getSExtValue(), DL, MVT::i16));
     } else {
-      CmpInstr = CurDAG->getMachineNode(TMS9900::Crr, DL, MVT::Glue,
-                                         CmpLHS, CmpRHS);
+      Ops.push_back(CmpRHS);
     }
-    Glue = SDValue(CmpInstr, 0);
+    Ops.push_back(CurDAG->getTargetConstant(CC, DL, MVT::i16));
+    Ops.push_back(TargetNode);
+    Ops.push_back(Chain);
+
+    unsigned Opc = RHSImm ? TMS9900::CMPBRri : TMS9900::CMPBRrr;
+    SDNode *BrNode = CurDAG->getMachineNode(Opc, DL, MVT::Other, Ops);
+    ReplaceUses(SDValue(N, 0), SDValue(BrNode, 0));
 
     // Clean up the old CMP node
     if (CmpNode->use_empty())
       CurDAG->RemoveDeadNode(CmpNode);
+    CurDAG->RemoveDeadNode(N);
+    return;
   }
 
   // For signed >= and <=, we need both the equality and the inequality case.

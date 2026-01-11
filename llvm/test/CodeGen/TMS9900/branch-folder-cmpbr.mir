@@ -1,0 +1,31 @@
+# RUN: llc -mtriple=tms9900 -run-pass=branch-folder %s -o - | FileCheck %s
+
+--- |
+  define i16 @cmpbr_invert() {
+    ret i16 0
+  }
+...
+---
+name: cmpbr_invert
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    $r1 = IMPLICIT_DEF
+    $r2 = IMPLICIT_DEF
+    CMPBRrr $r1, $r2, 17, %bb.1
+    JMP %bb.2
+
+  bb.1:
+    renamable $r0 = LI 1, implicit-def $st
+    RET
+
+  bb.2:
+    renamable $r0 = LI 2, implicit-def $st
+    RET
+...
+
+# CHECK-LABEL: name: cmpbr_invert
+# CHECK: bb.0:
+# CHECK: CMPBRrr $r{{[0-9]+}}, $r{{[0-9]+}}, 17, %bb.1
+# CHECK: JMP %bb.2

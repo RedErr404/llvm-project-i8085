@@ -1,0 +1,33 @@
+# RUN: llc -mtriple=tms9900 -run-pass=branch-folder %s -o - | FileCheck %s
+
+--- |
+  define i16 @signed_layout() {
+    ret i16 0
+  }
+...
+---
+name: signed_layout
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    $r1 = IMPLICIT_DEF
+    $r2 = IMPLICIT_DEF
+    Crr $r1, $r2, implicit-def $st
+    JLT %bb.1, implicit $st
+    JMP %bb.2
+
+  bb.1:
+    successors: %bb.2
+    renamable $r0 = LI 1, implicit-def $st
+    RET
+
+  bb.2:
+    renamable $r0 = LI 2, implicit-def $st
+    RET
+...
+
+# CHECK-LABEL: name: signed_layout
+# CHECK: bb.0:
+# CHECK: JLT %bb.1, implicit $st
+# CHECK: JMP %bb.2

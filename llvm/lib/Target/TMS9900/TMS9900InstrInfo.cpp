@@ -209,6 +209,19 @@ bool TMS9900InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
       continue;
     }
 
+    if (Opc == TMS9900::CMPBRrr || Opc == TMS9900::CMPBRri) {
+      if (!Cond.empty())
+        return true;
+
+      FBB = TBB;
+      TBB = I->getOperand(3).getMBB();
+      Cond.push_back(MachineOperand::CreateImm(Opc));
+      Cond.push_back(I->getOperand(0));
+      Cond.push_back(I->getOperand(1));
+      Cond.push_back(I->getOperand(2));
+      continue;
+    }
+
     // Handle conditional branches
     if (!isCondBranchOpcode(Opc))
       return true;
@@ -233,6 +246,16 @@ bool TMS9900InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
     return true;
   }
 
+  if (!AllowModify && !Cond.empty() && !FBB && TBB && MBB.succ_size() == 2 &&
+      MBB.isLayoutSuccessor(TBB)) {
+    for (MachineBasicBlock *Succ : MBB.successors()) {
+      if (Succ != TBB) {
+        FBB = Succ;
+        break;
+      }
+    }
+  }
+
   return false;
 }
 
@@ -243,8 +266,8 @@ unsigned TMS9900InstrInfo::insertBranch(MachineBasicBlock &MBB,
                                          const DebugLoc &DL,
                                          int *BytesAdded) const {
   assert(TBB && "insertBranch must have a target");
-  assert((Cond.size() == 0 || Cond.size() == 1) &&
-         "TMS9900 branch conditions have zero or one component");
+  assert((Cond.size() == 0 || Cond.size() == 1 || Cond.size() == 4) &&
+         "TMS9900 branch conditions have zero, one, or four components");
 
   if (BytesAdded)
     *BytesAdded = 0;
@@ -258,6 +281,26 @@ unsigned TMS9900InstrInfo::insertBranch(MachineBasicBlock &MBB,
   }
 
   unsigned Opc = Cond[0].getImm();
+
+  if (Opc == TMS9900::CMPBRrr || Opc == TMS9900::CMPBRri) {
+    assert(Cond.size() == 4 && "CMPBR expects 4 condition operands");
+    MachineInstrBuilder MIB = BuildMI(&MBB, DL, get(Opc));
+    MIB.add(Cond[1]); // LHS
+    MIB.add(Cond[2]); // RHS
+    MIB.add(Cond[3]); // CC
+    MIB.addMBB(TBB);
+    unsigned Count = 1;
+    if (BytesAdded)
+      *BytesAdded += 2;
+    if (FBB) {
+      BuildMI(&MBB, DL, get(TMS9900::JMP)).addMBB(FBB);
+      if (BytesAdded)
+        *BytesAdded += 2;
+      ++Count;
+    }
+    return Count;
+  }
+
   assert(isCondBranchOpcode(Opc) &&
          "invalid TMS9900 branch condition opcode");
 
@@ -307,10 +350,25 @@ unsigned TMS9900InstrInfo::removeBranch(MachineBasicBlock &MBB,
 
 bool TMS9900InstrInfo::reverseBranchCondition(
     SmallVectorImpl<MachineOperand> &Cond) const {
-  if (Cond.size() != 1 || !Cond[0].isImm())
+  if (Cond.empty() || !Cond[0].isImm())
     return true;
 
   unsigned Opc = Cond[0].getImm();
+  if (Opc == TMS9900::CMPBRrr || Opc == TMS9900::CMPBRri) {
+    if (Cond.size() != 4 || !Cond[3].isImm())
+      return true;
+    ISD::CondCode CC =
+        static_cast<ISD::CondCode>(Cond[3].getImm());
+    ISD::CondCode Inverted = ISD::getSetCCInverse(CC, MVT::i16);
+    if (Inverted == ISD::SETCC_INVALID)
+      return true;
+    Cond[3].setImm(Inverted);
+    return false;
+  }
+
+  if (Cond.size() != 1)
+    return true;
+
   unsigned Inverted = getOppositeCondBranchOpcode(Opc);
   if (!Inverted)
     return true;
@@ -369,6 +427,8 @@ bool TMS9900InstrInfo::isBranchOffsetInRange(unsigned BranchOpc,
 MachineBasicBlock *
 TMS9900InstrInfo::getBranchDestBlock(const MachineInstr &MI) const {
   unsigned Opc = MI.getOpcode();
+  if (Opc == TMS9900::CMPBRrr || Opc == TMS9900::CMPBRri)
+    return MI.getOperand(3).getMBB();
   if (Opc == TMS9900::JMP || Opc == TMS9900::B_sym || isCondBranchOpcode(Opc))
     return MI.getOperand(0).getMBB();
   return nullptr;
