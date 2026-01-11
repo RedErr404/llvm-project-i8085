@@ -1359,30 +1359,14 @@ TMS9900TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     // Note: Don't add virtual registers as live-ins - that's for physical regs
     // The register allocator will handle virtual register liveness
 
-    // Helper to map condition code to jump opcode
-    auto getJumpOpc = [](ISD::CondCode Cond) -> unsigned {
-      switch (Cond) {
-      case ISD::SETEQ: return TMS9900::JEQ;
-      case ISD::SETNE: return TMS9900::JNE;
-      case ISD::SETGT: return TMS9900::JGT;
-      case ISD::SETLT: return TMS9900::JLT;
-      case ISD::SETUGT: return TMS9900::JH;
-      case ISD::SETULT: return TMS9900::JL;
-      case ISD::SETUGE: return TMS9900::JHE;
-      case ISD::SETULE: return TMS9900::JLE;
-      default: llvm_unreachable("Unknown condition code");
-      }
-    };
-
-    // Emit separate compare and branch instructions (not CMPBRrr pseudo)
-    // to allow the branch folder to properly analyze the branches.
+    // Emit a CMPBR pseudo so the compare/branch stay adjacent (flags are
+    // otherwise clobbered by intervening instructions).
     auto emitCmpBr = [&](MachineBasicBlock *TargetBB, ISD::CondCode Cond) {
-      // Emit compare: C RHS, LHS (so flags reflect LHS - RHS)
-      BuildMI(StartBB, DL, TII.get(TMS9900::Crr))
+      // CMPBR expands to: C RHS, LHS (flags reflect LHS - RHS), then Jcc.
+      BuildMI(StartBB, DL, TII.get(TMS9900::CMPBRrr))
           .addReg(RHSReg)
-          .addReg(LHSReg);
-      // Emit conditional branch
-      BuildMI(StartBB, DL, TII.get(getJumpOpc(Cond)))
+          .addReg(LHSReg)
+          .addImm(static_cast<int64_t>(Cond))
           .addMBB(TargetBB);
     };
 
