@@ -163,6 +163,9 @@ MachineBasicBlock::iterator TMS9900FrameLowering::eliminateCallFramePseudoInstr(
   const TMS9900Subtarget &STI = MF.getSubtarget<TMS9900Subtarget>();
   const TMS9900InstrInfo &TII = *STI.getInstrInfo();
 
+  if (hasReservedCallFrame(MF))
+    return MBB.erase(I);
+
   MachineInstr &MI = *I;
   DebugLoc DL = MI.getDebugLoc();
   int64_t Amount = MI.getOperand(0).getImm();
