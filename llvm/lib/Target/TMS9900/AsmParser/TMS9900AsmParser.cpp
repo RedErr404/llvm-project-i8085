@@ -694,6 +694,12 @@ ParseStatus TMS9900AsmParser::parsePostIndirectOperand(OperandVector &Operands) 
 ParseStatus TMS9900AsmParser::parseBranchTarget(OperandVector &Operands) {
   SMLoc StartLoc = Parser.getTok().getLoc();
 
+  if (Parser.getTok().is(AsmToken::At)) {
+    Operands.push_back(TMS9900Operand::createToken("@", StartLoc));
+    Parser.Lex(); // Consume '@'
+    StartLoc = Parser.getTok().getLoc();
+  }
+
   const MCExpr *Expr;
   if (getParser().parseExpression(Expr))
     return ParseStatus::Failure;

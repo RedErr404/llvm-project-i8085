@@ -199,7 +199,7 @@ def memri : Operand<i16> {
 def calltarget : Operand<i16> {
   let EncoderMethod = "getCallTargetEncoding";
   let PrintMethod = "printBranchTarget16";
-  let ParserMatchClass = TMS9900ImmAsmOperand;
+  let ParserMatchClass = TMS9900BrTargetAsmOperand;
 }
 
 // Symbolic address for memory operands (MOV @addr, etc.)
