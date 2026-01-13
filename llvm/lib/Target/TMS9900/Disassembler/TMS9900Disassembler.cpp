@@ -583,6 +583,81 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
         return MCDisassembler::Fail;
     }
 
+    auto mapSingleOperandOpcode = [&](unsigned Base) -> unsigned {
+      switch (Base) {
+      case TMS9900::CLRr:
+        if (Ts == 1) return TMS9900::CLR_ind;
+        if (Ts == 2 && S == 0) return TMS9900::CLR_sym;
+        if (Ts == 2) return TMS9900::CLR_idx;
+        if (Ts == 3) return TMS9900::CLR_pim;
+        break;
+      case TMS9900::SETOr:
+        if (Ts == 1) return TMS9900::SETO_ind;
+        if (Ts == 2 && S == 0) return TMS9900::SETO_sym;
+        if (Ts == 2) return TMS9900::SETO_idx;
+        if (Ts == 3) return TMS9900::SETO_pim;
+        break;
+      case TMS9900::SWPBr:
+        if (Ts == 1) return TMS9900::SWPB_ind;
+        if (Ts == 2 && S == 0) return TMS9900::SWPB_sym;
+        if (Ts == 2) return TMS9900::SWPB_idx;
+        if (Ts == 3) return TMS9900::SWPB_pim;
+        break;
+      case TMS9900::INCr:
+        if (Ts == 1) return TMS9900::INC_ind;
+        if (Ts == 2 && S == 0) return TMS9900::INC_sym;
+        if (Ts == 2) return TMS9900::INC_idx;
+        if (Ts == 3) return TMS9900::INC_pim;
+        break;
+      case TMS9900::INCTr:
+        if (Ts == 1) return TMS9900::INCT_ind;
+        if (Ts == 2 && S == 0) return TMS9900::INCT_sym;
+        if (Ts == 2) return TMS9900::INCT_idx;
+        if (Ts == 3) return TMS9900::INCT_pim;
+        break;
+      case TMS9900::DECr:
+        if (Ts == 1) return TMS9900::DEC_ind;
+        if (Ts == 2 && S == 0) return TMS9900::DEC_sym;
+        if (Ts == 2) return TMS9900::DEC_idx;
+        if (Ts == 3) return TMS9900::DEC_pim;
+        break;
+      case TMS9900::DECTr:
+        if (Ts == 1) return TMS9900::DECT_ind;
+        if (Ts == 2 && S == 0) return TMS9900::DECT_sym;
+        if (Ts == 2) return TMS9900::DECT_idx;
+        if (Ts == 3) return TMS9900::DECT_pim;
+        break;
+      case TMS9900::NEGr:
+        if (Ts == 1) return TMS9900::NEG_ind;
+        if (Ts == 2 && S == 0) return TMS9900::NEG_sym;
+        if (Ts == 2) return TMS9900::NEG_idx;
+        if (Ts == 3) return TMS9900::NEG_pim;
+        break;
+      case TMS9900::ABSr:
+        if (Ts == 1) return TMS9900::ABS_ind;
+        if (Ts == 2 && S == 0) return TMS9900::ABS_sym;
+        if (Ts == 2) return TMS9900::ABS_idx;
+        if (Ts == 3) return TMS9900::ABS_pim;
+        break;
+      case TMS9900::INVr:
+        if (Ts == 1) return TMS9900::INV_ind;
+        if (Ts == 2 && S == 0) return TMS9900::INV_sym;
+        if (Ts == 2) return TMS9900::INV_idx;
+        if (Ts == 3) return TMS9900::INV_pim;
+        break;
+      default:
+        break;
+      }
+      return Base;
+    };
+
+    if (Ts != 0) {
+      unsigned Mapped = mapSingleOperandOpcode(Opcode);
+      if (Mapped == 0)
+        return MCDisassembler::Fail;
+      Opcode = Mapped;
+    }
+
     MI.setOpcode(Opcode);
 
     // Handle addressing mode
@@ -596,21 +671,24 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
       }
       if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
         return MCDisassembler::Fail;
+    } else if (Ts == 1 || Ts == 3) {
+      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
     } else if (Ts == 2 && S == 0) {
       // Symbolic addressing - need second word
       if (Bytes.size() < 4) return MCDisassembler::Fail;
       uint16_t Addr = support::endian::read16be(Bytes.data() + 2);
       Size = 4;
       MI.addOperand(MCOperand::createImm(Addr));
-    } else {
-      // Other addressing modes - simplified for now
-      // TODO: Handle indirect (*Rn), indexed (@addr(Rn)), post-increment (*Rn+)
-      if (needsTiedOperand) {
-        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
-          return MCDisassembler::Fail;
-      }
+    } else if (Ts == 2) {
+      if (Bytes.size() < 4) return MCDisassembler::Fail;
+      uint16_t Offset = support::endian::read16be(Bytes.data() + 2);
+      Size = 4;
+      MI.addOperand(MCOperand::createImm(Offset));
       if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
         return MCDisassembler::Fail;
+    } else {
+      return MCDisassembler::Fail;
     }
     return MCDisassembler::Success;
   }

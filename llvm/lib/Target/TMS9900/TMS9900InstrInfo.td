@@ -496,16 +496,95 @@ def CLRr : Format3_Reg<0b0000010011, (outs GR16:$rs), (ins),
                        "CLR\t$rs",
                        [(set GR16:$rs, 0)]>;
 
+def CLR_ind : Format3_IndReg<0b0000010011, (outs), (ins GR16:$rs),
+                             "CLR\t*$rs",
+                             []> {
+  let mayStore = 1;
+}
+
+def CLR_sym : Format3_Sym<0b0000010011, (outs), (ins symaddr:$addr),
+                          "CLR\t@$addr",
+                          []> {
+  let mayStore = 1;
+}
+
+def CLR_idx : Format3_Idx<0b0000010011, (outs),
+                          (ins i16imm:$offset, IdxRegs:$ri),
+                          "CLR\t@${offset}(${ri})",
+                          []> {
+  let mayStore = 1;
+}
+
+def CLR_pim : Format3_AutoInc<0b0000010011, (outs), (ins GR16:$rs),
+                              "CLR\t*${rs}+",
+                              []> {
+  let mayStore = 1;
+}
+
 // SETO - Set to ones (FFFF) - sets LGT=1, AGT=0, EQ=0
 def SETOr : Format3_Reg<0b0000011100, (outs GR16:$rs), (ins),
                         "SETO\t$rs",
                         [(set GR16:$rs, -1)]>;
+
+def SETO_ind : Format3_IndReg<0b0000011100, (outs), (ins GR16:$rs),
+                              "SETO\t*$rs",
+                              []> {
+  let mayStore = 1;
+}
+
+def SETO_sym : Format3_Sym<0b0000011100, (outs), (ins symaddr:$addr),
+                           "SETO\t@$addr",
+                           []> {
+  let mayStore = 1;
+}
+
+def SETO_idx : Format3_Idx<0b0000011100, (outs),
+                           (ins i16imm:$offset, IdxRegs:$ri),
+                           "SETO\t@${offset}(${ri})",
+                           []> {
+  let mayStore = 1;
+}
+
+def SETO_pim : Format3_AutoInc<0b0000011100, (outs), (ins GR16:$rs),
+                               "SETO\t*${rs}+",
+                               []> {
+  let mayStore = 1;
+}
 
 // SWPB - Swap bytes - sets status based on result
 def SWPBr : Format3_Reg<0b0000011011, (outs GR16:$rd), (ins GR16:$rs),
                         "SWPB\t$rs",
                         [(set GR16:$rd, (bswap GR16:$rs))]> {
   let Constraints = "$rd = $rs";
+}
+
+def SWPB_ind : Format3_IndReg<0b0000011011, (outs), (ins GR16:$rs),
+                              "SWPB\t*$rs",
+                              []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def SWPB_sym : Format3_Sym<0b0000011011, (outs), (ins symaddr:$addr),
+                           "SWPB\t@$addr",
+                           []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def SWPB_idx : Format3_Idx<0b0000011011, (outs),
+                           (ins i16imm:$offset, IdxRegs:$ri),
+                           "SWPB\t@${offset}(${ri})",
+                           []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def SWPB_pim : Format3_AutoInc<0b0000011011, (outs), (ins GR16:$rs),
+                               "SWPB\t*${rs}+",
+                               []> {
+  let mayLoad = 1;
+  let mayStore = 1;
 }
 } // Defs = [ST]
 
@@ -544,11 +623,69 @@ def INCr : Format3_Reg<0b0000010110, (outs GR16:$rd), (ins GR16:$rs),
   let Constraints = "$rd = $rs";
 }
 
+def INC_ind : Format3_IndReg<0b0000010110, (outs), (ins GR16:$rs),
+                             "INC\t*$rs",
+                             []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def INC_sym : Format3_Sym<0b0000010110, (outs), (ins symaddr:$addr),
+                          "INC\t@$addr",
+                          []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def INC_idx : Format3_Idx<0b0000010110, (outs),
+                          (ins i16imm:$offset, IdxRegs:$ri),
+                          "INC\t@${offset}(${ri})",
+                          []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def INC_pim : Format3_AutoInc<0b0000010110, (outs), (ins GR16:$rs),
+                              "INC\t*${rs}+",
+                              []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
 // INCT - Increment by 2
 def INCTr : Format3_Reg<0b0000010111, (outs GR16:$rd), (ins GR16:$rs),
                         "INCT\t$rs",
                         [(set GR16:$rd, (add GR16:$rs, 2))]> {
   let Constraints = "$rd = $rs";
+}
+
+def INCT_ind : Format3_IndReg<0b0000010111, (outs), (ins GR16:$rs),
+                              "INCT\t*$rs",
+                              []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def INCT_sym : Format3_Sym<0b0000010111, (outs), (ins symaddr:$addr),
+                           "INCT\t@$addr",
+                           []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def INCT_idx : Format3_Idx<0b0000010111, (outs),
+                           (ins i16imm:$offset, IdxRegs:$ri),
+                           "INCT\t@${offset}(${ri})",
+                           []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def INCT_pim : Format3_AutoInc<0b0000010111, (outs), (ins GR16:$rs),
+                               "INCT\t*${rs}+",
+                               []> {
+  let mayLoad = 1;
+  let mayStore = 1;
 }
 
 // DEC - Decrement by 1
@@ -558,11 +695,69 @@ def DECr : Format3_Reg<0b0000011000, (outs GR16:$rd), (ins GR16:$rs),
   let Constraints = "$rd = $rs";
 }
 
+def DEC_ind : Format3_IndReg<0b0000011000, (outs), (ins GR16:$rs),
+                             "DEC\t*$rs",
+                             []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def DEC_sym : Format3_Sym<0b0000011000, (outs), (ins symaddr:$addr),
+                          "DEC\t@$addr",
+                          []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def DEC_idx : Format3_Idx<0b0000011000, (outs),
+                          (ins i16imm:$offset, IdxRegs:$ri),
+                          "DEC\t@${offset}(${ri})",
+                          []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def DEC_pim : Format3_AutoInc<0b0000011000, (outs), (ins GR16:$rs),
+                              "DEC\t*${rs}+",
+                              []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
 // DECT - Decrement by 2
 def DECTr : Format3_Reg<0b0000011001, (outs GR16:$rd), (ins GR16:$rs),
                         "DECT\t$rs",
                         [(set GR16:$rd, (sub GR16:$rs, 2))]> {
   let Constraints = "$rd = $rs";
+}
+
+def DECT_ind : Format3_IndReg<0b0000011001, (outs), (ins GR16:$rs),
+                              "DECT\t*$rs",
+                              []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def DECT_sym : Format3_Sym<0b0000011001, (outs), (ins symaddr:$addr),
+                           "DECT\t@$addr",
+                           []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def DECT_idx : Format3_Idx<0b0000011001, (outs),
+                           (ins i16imm:$offset, IdxRegs:$ri),
+                           "DECT\t@${offset}(${ri})",
+                           []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def DECT_pim : Format3_AutoInc<0b0000011001, (outs), (ins GR16:$rs),
+                               "DECT\t*${rs}+",
+                               []> {
+  let mayLoad = 1;
+  let mayStore = 1;
 }
 
 // NEG - Negate (two's complement)
@@ -572,6 +767,35 @@ def NEGr : Format3_Reg<0b0000010100, (outs GR16:$rd), (ins GR16:$rs),
   let Constraints = "$rd = $rs";
 }
 
+def NEG_ind : Format3_IndReg<0b0000010100, (outs), (ins GR16:$rs),
+                             "NEG\t*$rs",
+                             []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def NEG_sym : Format3_Sym<0b0000010100, (outs), (ins symaddr:$addr),
+                          "NEG\t@$addr",
+                          []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def NEG_idx : Format3_Idx<0b0000010100, (outs),
+                          (ins i16imm:$offset, IdxRegs:$ri),
+                          "NEG\t@${offset}(${ri})",
+                          []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def NEG_pim : Format3_AutoInc<0b0000010100, (outs), (ins GR16:$rs),
+                              "NEG\t*${rs}+",
+                              []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
 // ABS - Absolute value
 def ABSr : Format3_Reg<0b0000011101, (outs GR16:$rd), (ins GR16:$rs),
                        "ABS\t$rs",
@@ -579,6 +803,34 @@ def ABSr : Format3_Reg<0b0000011101, (outs GR16:$rd), (ins GR16:$rs),
   let Constraints = "$rd = $rs";
 }
 
+def ABS_ind : Format3_IndReg<0b0000011101, (outs), (ins GR16:$rs),
+                             "ABS\t*$rs",
+                             []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def ABS_sym : Format3_Sym<0b0000011101, (outs), (ins symaddr:$addr),
+                          "ABS\t@$addr",
+                          []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def ABS_idx : Format3_Idx<0b0000011101, (outs),
+                          (ins i16imm:$offset, IdxRegs:$ri),
+                          "ABS\t@${offset}(${ri})",
+                          []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def ABS_pim : Format3_AutoInc<0b0000011101, (outs), (ins GR16:$rs),
+                              "ABS\t*${rs}+",
+                              []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
 } // Defs = [ST]
 
 //===----------------------------------------------------------------------===//
@@ -595,6 +847,34 @@ def INVr : Format3_Reg<0b0000010101, (outs GR16:$rd), (ins GR16:$rs),
   let Constraints = "$rd = $rs";
 }
 
+def INV_ind : Format3_IndReg<0b0000010101, (outs), (ins GR16:$rs),
+                             "INV\t*$rs",
+                             []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def INV_sym : Format3_Sym<0b0000010101, (outs), (ins symaddr:$addr),
+                          "INV\t@$addr",
+                          []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def INV_idx : Format3_Idx<0b0000010101, (outs),
+                          (ins i16imm:$offset, IdxRegs:$ri),
+                          "INV\t@${offset}(${ri})",
+                          []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def INV_pim : Format3_AutoInc<0b0000010101, (outs), (ins GR16:$rs),
+                              "INV\t*${rs}+",
+                              []> {
+  let mayLoad = 1;
+  let mayStore = 1;
+}
 // SOC - Set Ones Corresponding (OR)
 def SOCrr : Format1_Reg_TwoAddr<0b1110, 0, (outs GR16:$rd), (ins GR16:$rs1, GR16:$rs2),
                                 "SOC\t$rs2,$rd",
