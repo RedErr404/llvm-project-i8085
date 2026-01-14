@@ -37,19 +37,19 @@ public:
     bool Changed = false;
 
     for (MachineBasicBlock &MBB : MF) {
-      MachineInstr *Last = MBB.getLastNonDebugInstr();
-      if (!Last)
+      auto LastIt = MBB.getLastNonDebugInstr();
+      if (LastIt == MBB.instr_end())
         continue;
 
       MachineInstr *CondMI = nullptr;
       MachineInstr *JmpMI = nullptr;
-      if (Last->getOpcode() == TMS9900::JMP) {
-        JmpMI = Last;
+      if (LastIt->getOpcode() == TMS9900::JMP) {
+        JmpMI = &*LastIt;
         CondMI = JmpMI->getPrevNode();
         while (CondMI && CondMI->isDebugInstr())
           CondMI = CondMI->getPrevNode();
       } else {
-        CondMI = Last;
+        CondMI = &*LastIt;
       }
 
       if (!CondMI)
@@ -66,18 +66,19 @@ public:
           *LongBB->pred_begin() != &MBB)
         continue;
 
-      MachineInstr *LongMI = LongBB->getFirstNonDebugInstr();
-      if (!LongMI || LongMI->getOpcode() != TMS9900::B_sym ||
-          !LongMI->getOperand(0).isMBB())
+      auto LongIt = LongBB->getFirstNonDebugInstr();
+      if (LongIt == LongBB->instr_end() ||
+          LongIt->getOpcode() != TMS9900::B_sym ||
+          !LongIt->getOperand(0).isMBB())
         continue;
-      auto NextIt = LongMI->getIterator();
+      auto NextIt = LongIt;
       ++NextIt;
       while (NextIt != LongBB->end() && NextIt->isDebugInstr())
         ++NextIt;
       if (NextIt != LongBB->end())
         continue;
 
-      MachineBasicBlock *TargetBB = LongMI->getOperand(0).getMBB();
+      MachineBasicBlock *TargetBB = LongIt->getOperand(0).getMBB();
       if (!TargetBB)
         continue;
 

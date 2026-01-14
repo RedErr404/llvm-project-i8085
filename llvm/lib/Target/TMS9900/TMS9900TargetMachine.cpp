@@ -28,7 +28,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeTMS9900Target() {
   // Register the target
   RegisterTargetMachine<TMS9900TargetMachine> X(getTheTMS9900Target());
   PassRegistry &PR = *PassRegistry::getPassRegistry();
-  initializeTMS9900LongBranchPass(PR);
+  initializeTMS9900LongBranchPassPass(PR);
 }
 
 static std::string computeDataLayout(const Triple &TT) {
