@@ -157,6 +157,12 @@ def imm4 : Operand<i16> {
   let ParserMatchClass = TMS9900Imm4AsmOperand;
 }
 
+// Shift count (0 encoded as 16 in disassembly)
+def shcount : Operand<i16> {
+  let ParserMatchClass = TMS9900Imm4AsmOperand;
+  let DecoderMethod = "decodeShiftCount";
+}
+
 // CRU count (0-15, 0 means 16 bits)
 def cru_count : Operand<i16> {
   let ParserMatchClass = TMS9900CRUCountAsmOperand;
@@ -165,6 +171,7 @@ def cru_count : Operand<i16> {
 // CRU signed displacement (-128..127)
 def cru_disp8 : Operand<i16> {
   let ParserMatchClass = TMS9900CRUDispAsmOperand;
+  let DecoderMethod = "decodeCRUDisp";
 }
 
 // 8-bit signed displacement for jumps (word offset, so range is -256 to +254 bytes)
@@ -1156,28 +1163,28 @@ def CZCpim : Format2_AutoInc<0b001001, (outs), (ins GR16:$rd, GR16:$rs),
 let Defs = [ST] in {
 
 // SLA - Shift Left Arithmetic
-def SLAri : Format7_TwoAddr<0b00001010, (outs GR16:$rd), (ins GR16:$rs, i16imm:$cnt),
+def SLAri : Format7_TwoAddr<0b00001010, (outs GR16:$rd), (ins GR16:$rs, shcount:$cnt),
                             "SLA\t$rs,$cnt",
                             [(set GR16:$rd, (shl GR16:$rs, (i16 imm:$cnt)))]> {
   let Constraints = "$rd = $rs";
 }
 
 // SRA - Shift Right Arithmetic
-def SRAri : Format7_TwoAddr<0b00001000, (outs GR16:$rd), (ins GR16:$rs, i16imm:$cnt),
+def SRAri : Format7_TwoAddr<0b00001000, (outs GR16:$rd), (ins GR16:$rs, shcount:$cnt),
                             "SRA\t$rs,$cnt",
                             [(set GR16:$rd, (sra GR16:$rs, (i16 imm:$cnt)))]> {
   let Constraints = "$rd = $rs";
 }
 
 // SRL - Shift Right Logical
-def SRLri : Format7_TwoAddr<0b00001001, (outs GR16:$rd), (ins GR16:$rs, i16imm:$cnt),
+def SRLri : Format7_TwoAddr<0b00001001, (outs GR16:$rd), (ins GR16:$rs, shcount:$cnt),
                             "SRL\t$rs,$cnt",
                             [(set GR16:$rd, (srl GR16:$rs, (i16 imm:$cnt)))]> {
   let Constraints = "$rd = $rs";
 }
 
 // SRC - Shift Right Circular (rotate right)
-def SRCri : Format7_TwoAddr<0b00001011, (outs GR16:$rd), (ins GR16:$rs, i16imm:$cnt),
+def SRCri : Format7_TwoAddr<0b00001011, (outs GR16:$rd), (ins GR16:$rs, shcount:$cnt),
                             "SRC\t$rs,$cnt",
                             [(set GR16:$rd, (rotr GR16:$rs, (i16 imm:$cnt)))]> {
   let Constraints = "$rd = $rs";
@@ -1187,7 +1194,7 @@ def SRCri : Format7_TwoAddr<0b00001011, (outs GR16:$rd), (ins GR16:$rs, i16imm:$
 
 // Shift instructions with count from R0 (count field = 0)
 // These are used by variable shift pseudos
-let Defs = [ST] in {
+let Defs = [ST], isCodeGenOnly = 1 in {
 def SLAr0 : Format7_R0Count<0b00001010, (outs GR16:$rd), (ins GR16:$rs),
                             "SLA\t$rs,0", []> {
   let Constraints = "$rd = $rs";

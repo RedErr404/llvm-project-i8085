@@ -10,6 +10,7 @@ tablegen(LLVM TMS9900GenCallingConv.inc -gen-callingconv)
 tablegen(LLVM TMS9900GenSubtargetInfo.inc -gen-subtarget)
 tablegen(LLVM TMS9900GenMCCodeEmitter.inc -gen-emitter)
 tablegen(LLVM TMS9900GenAsmMatcher.inc -gen-asm-matcher)
+tablegen(LLVM TMS9900GenDisassemblerTables.inc -gen-disassembler)
 
 add_public_tablegen_target(TMS9900CommonTableGen)
 
