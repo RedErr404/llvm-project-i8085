@@ -495,6 +495,46 @@ def MOVBmpi : Format1_AutoIncStore<0b1100, 1, (outs GR16:$rd_wb),
 }
 } // Defs = [ST]
 
+//===----------------------------------------------------------------------===//
+// Format 1 Mem-to-Mem (Symbolic/Indexed on Both Operands)
+//===----------------------------------------------------------------------===//
+
+multiclass Format1MemMem<bits<4> opcode, bit byteflag, string asmname> {
+  def aa : Format1_SymSym<opcode, byteflag, (outs),
+                          (ins symaddr:$src, symaddr:$dst),
+                          !strconcat(asmname, "\t@$src,@$dst"), []>;
+  def ax : Format1_SymIdx<opcode, byteflag, (outs),
+                          (ins symaddr:$src, i16imm:$dst, IdxRegs:$ri),
+                          !strconcat(asmname, "\t@$src,@${dst}(${ri})"), []>;
+  def xa : Format1_IdxSym<opcode, byteflag, (outs),
+                          (ins i16imm:$src, IdxRegs:$ri, symaddr:$dst),
+                          !strconcat(asmname, "\t@${src}(${ri}),@$dst"), []>;
+  def xx : Format1_IdxIdx<opcode, byteflag, (outs),
+                          (ins i16imm:$src, IdxRegs:$src_ri,
+                               i16imm:$dst, IdxRegs:$dst_ri),
+                          !strconcat(asmname,
+                                     "\t@${src}(${src_ri}),@${dst}(${dst_ri})"),
+                          []>;
+}
+
+let Defs = [ST], mayLoad = 1, mayStore = 1 in {
+defm MOV  : Format1MemMem<0b1100, 0, "MOV">;
+defm MOVB : Format1MemMem<0b1100, 1, "MOVB">;
+defm A    : Format1MemMem<0b1010, 0, "A">;
+defm AB   : Format1MemMem<0b1010, 1, "AB">;
+defm S    : Format1MemMem<0b0110, 0, "S">;
+defm SB   : Format1MemMem<0b0110, 1, "SB">;
+defm SOC  : Format1MemMem<0b1110, 0, "SOC">;
+defm SOCB : Format1MemMem<0b1110, 1, "SOCB">;
+defm SZC  : Format1MemMem<0b0100, 0, "SZC">;
+defm SZCB : Format1MemMem<0b0100, 1, "SZCB">;
+}
+
+let Defs = [ST], mayLoad = 1 in {
+defm C  : Format1MemMem<0b1000, 0, "C">;
+defm CB : Format1MemMem<0b1000, 1, "CB">;
+}
+
 // LI - Load Immediate (sets status based on value loaded)
 let Defs = [ST] in
 def LI : Format8<0b0000, (outs GR16:$rd), (ins i16imm:$imm),

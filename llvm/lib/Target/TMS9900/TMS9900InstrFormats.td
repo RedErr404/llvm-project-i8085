@@ -661,6 +661,99 @@ class Format1_AutoIncStore<bits<4> opcode, bit byteflag, dag outs, dag ins,
 }
 
 //===----------------------------------------------------------------------===//
+// Format 1 with Symbolic/Indexed Addressing on Both Operands (Mem-to-Mem)
+// These forms use two extra words (source first, destination second).
+//===----------------------------------------------------------------------===//
+
+// Symbolic source and symbolic destination: OP @src,@dst
+class Format1_SymSym<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                     string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<16> src;
+  bits<16> dst;
+
+  bits<48> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b10;     // Td = symbolic/indexed
+  let Inst{9-6} = 0b0000;     // D = 0 (symbolic)
+  let Inst{5-4} = 0b10;       // Ts = symbolic/indexed
+  let Inst{3-0} = 0b0000;     // S = 0 (symbolic)
+  let Inst{31-16} = src;      // Source address
+  let Inst{47-32} = dst;      // Destination address
+
+  let Size = 6;
+}
+
+// Symbolic source, indexed destination: OP @src,@off(Rd)
+class Format1_SymIdx<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                     string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<16> src;
+  bits<4> ri;
+  bits<16> dst;
+
+  bits<48> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b10;     // Td = symbolic/indexed
+  let Inst{9-6} = ri;         // D = destination index register
+  let Inst{5-4} = 0b10;       // Ts = symbolic/indexed
+  let Inst{3-0} = 0b0000;     // S = 0 (symbolic)
+  let Inst{31-16} = src;      // Source address
+  let Inst{47-32} = dst;      // Destination offset
+
+  let Size = 6;
+}
+
+// Indexed source, symbolic destination: OP @off(Rs),@dst
+class Format1_IdxSym<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                     string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<16> src;
+  bits<4> ri;
+  bits<16> dst;
+
+  bits<48> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b10;     // Td = symbolic/indexed
+  let Inst{9-6} = 0b0000;     // D = 0 (symbolic)
+  let Inst{5-4} = 0b10;       // Ts = symbolic/indexed
+  let Inst{3-0} = ri;         // S = source index register
+  let Inst{31-16} = src;      // Source offset
+  let Inst{47-32} = dst;      // Destination address
+
+  let Size = 6;
+}
+
+// Indexed source and indexed destination: OP @off(Rs),@off(Rd)
+class Format1_IdxIdx<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                     string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<16> src;
+  bits<4> src_ri;
+  bits<16> dst;
+  bits<4> dst_ri;
+
+  bits<48> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b10;     // Td = symbolic/indexed
+  let Inst{9-6} = dst_ri;     // D = destination index register
+  let Inst{5-4} = 0b10;       // Ts = symbolic/indexed
+  let Inst{3-0} = src_ri;     // S = source index register
+  let Inst{31-16} = src;      // Source offset
+  let Inst{47-32} = dst;      // Destination offset
+
+  let Size = 6;
+}
+
+//===----------------------------------------------------------------------===//
 // Format 6: Jump (PC-relative)
 // [opcode:8][disp:8]
 //===----------------------------------------------------------------------===//

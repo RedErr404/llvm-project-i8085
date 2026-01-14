@@ -194,6 +194,9 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
   case 2:
     DecoderTable = DecoderTable32;
     break;
+  case 3:
+    DecoderTable = DecoderTable48;
+    break;
   default:
     Size = RequiredBytes;
     return MCDisassembler::Fail;

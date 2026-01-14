@@ -43,6 +43,12 @@
   socb r13, *r14+
   szc *r1, r2
   szcb r3, *r4
+  mov @0x1111, @0x2222
+  mov @0x1234, @8(r1)
+  mov @6(r2), @0x3456
+  mov @2(r3), @4(r4)
+  movb @0x1111, @0x2222
+  c @0x1111, @0x2222
 
 ; CHECK: MOV{{[ \t]+}}R1,R2{{[ \t]+}}; encoding: [0xc0,0x81]
 ; CHECK: MOV{{[ \t]+}}*R3,R4{{[ \t]+}}; encoding: [0xc1,0x13]
@@ -84,6 +90,12 @@
 ; CHECK: SOCB{{[ \t]+}}R13,*R14+{{[ \t]+}}; encoding: [0xff,0x8d]
 ; CHECK: SZC{{[ \t]+}}*R1,R2{{[ \t]+}}; encoding: [0x40,0x91]
 ; CHECK: SZCB{{[ \t]+}}R3,*R4{{[ \t]+}}; encoding: [0x55,0x03]
+; CHECK: MOV{{[ \t]+}}@0x1111,@0x2222{{[ \t]+}}; encoding: [0xc8,0x20,0x11,0x11,0x22,0x22]
+; CHECK: MOV{{[ \t]+}}@0x1234,@8(R1){{[ \t]+}}; encoding: [0xc8,0x60,0x12,0x34,0x00,0x08]
+; CHECK: MOV{{[ \t]+}}@6(R2),@0x3456{{[ \t]+}}; encoding: [0xc8,0x22,0x00,0x06,0x34,0x56]
+; CHECK: MOV{{[ \t]+}}@2(R3),@4(R4){{[ \t]+}}; encoding: [0xc9,0x23,0x00,0x02,0x00,0x04]
+; CHECK: MOVB{{[ \t]+}}@0x1111,@0x2222{{[ \t]+}}; encoding: [0xd8,0x20,0x11,0x11,0x22,0x22]
+; CHECK: C{{[ \t]+}}@0x1111,@0x2222{{[ \t]+}}; encoding: [0x88,0x20,0x11,0x11,0x22,0x22]
 
 ; DISASM: {{[0-9a-f]+}}: c0 81{{[ \t]+}}MOV{{[ \t]+}}R1,R2
 ; DISASM: {{[0-9a-f]+}}: c1 13{{[ \t]+}}MOV{{[ \t]+}}*R3,R4
@@ -125,3 +137,9 @@
 ; DISASM: {{[0-9a-f]+}}: ff 8d{{[ \t]+}}SOCB{{[ \t]+}}R13,*R14+
 ; DISASM: {{[0-9a-f]+}}: 40 91{{[ \t]+}}SZC{{[ \t]+}}*R1,R2
 ; DISASM: {{[0-9a-f]+}}: 55 03{{[ \t]+}}SZCB{{[ \t]+}}R3,*R4
+; DISASM: {{[0-9a-f]+}}: c8 20 11 11 22 22{{[ \t]+}}MOV{{[ \t]+}}@0x1111,@0x2222
+; DISASM: {{[0-9a-f]+}}: c8 60 12 34 00 08{{[ \t]+}}MOV{{[ \t]+}}@0x1234,@8(R1)
+; DISASM: {{[0-9a-f]+}}: c8 22 00 06 34 56{{[ \t]+}}MOV{{[ \t]+}}@6(R2),@0x3456
+; DISASM: {{[0-9a-f]+}}: c9 23 00 02 00 04{{[ \t]+}}MOV{{[ \t]+}}@2(R3),@4(R4)
+; DISASM: {{[0-9a-f]+}}: d8 20 11 11 22 22{{[ \t]+}}MOVB{{[ \t]+}}@0x1111,@0x2222
+; DISASM: {{[0-9a-f]+}}: 88 20 11 11 22 22{{[ \t]+}}C{{[ \t]+}}@0x1111,@0x2222
