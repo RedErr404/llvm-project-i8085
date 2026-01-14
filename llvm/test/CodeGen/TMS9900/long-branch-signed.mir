@@ -1,0 +1,57 @@
+# RUN: llc -mtriple=tms9900 -run-pass tms9900-long-branch %s -o - | FileCheck %s
+
+---
+name: long_signed_expand_gt
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1
+
+    JGT %bb.2, implicit $st
+    JMP %bb.1
+
+  bb.1:
+    RET
+
+  bb.2:
+    B_sym %bb.3
+
+  bb.3:
+    RET
+
+# CHECK-LABEL: name: long_signed_expand_gt
+# CHECK: bb.0:
+# CHECK: JEQ %bb.1
+# CHECK-NEXT: JLT %bb.1
+# CHECK-NEXT: B_sym %bb.3
+# CHECK-NOT: JGT
+# CHECK-NOT: JMP %bb.1
+
+---
+name: long_signed_expand_lt
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r2
+
+    JLT %bb.2, implicit $st
+    JMP %bb.1
+
+  bb.1:
+    RET
+
+  bb.2:
+    B_sym %bb.3
+
+  bb.3:
+    RET
+
+# CHECK-LABEL: name: long_signed_expand_lt
+# CHECK: bb.0:
+# CHECK: JEQ %bb.1
+# CHECK-NEXT: JGT %bb.1
+# CHECK-NEXT: B_sym %bb.3
+# CHECK-NOT: JLT
+# CHECK-NOT: JMP %bb.1

@@ -18,13 +18,17 @@
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
+#include "llvm/InitializePasses.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/PassRegistry.h"
 
 using namespace llvm;
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeTMS9900Target() {
   // Register the target
   RegisterTargetMachine<TMS9900TargetMachine> X(getTheTMS9900Target());
+  PassRegistry &PR = *PassRegistry::getPassRegistry();
+  initializeTMS9900LongBranchPass(PR);
 }
 
 static std::string computeDataLayout(const Triple &TT) {
@@ -102,4 +106,5 @@ bool TMS9900PassConfig::addInstSelector() {
 
 void TMS9900PassConfig::addPreEmitPass() {
   addPass(&BranchRelaxationPassID);
+  addPass(createTMS9900LongBranchPass());
 }

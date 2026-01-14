@@ -20,6 +20,7 @@ add_llvm_target(TMS9900CodeGen
   TMS9900InstrInfo.cpp
   TMS9900ISelDAGToDAG.cpp
   TMS9900ISelLowering.cpp
+  TMS9900LongBranch.cpp
   TMS9900MachineFunctionInfo.cpp
   TMS9900MCInstLower.cpp
   TMS9900RegisterInfo.cpp

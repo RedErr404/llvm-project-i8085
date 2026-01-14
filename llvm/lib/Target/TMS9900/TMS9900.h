@@ -31,6 +31,7 @@ class FunctionPass;
 
 FunctionPass *createTMS9900ISelDag(TMS9900TargetMachine &TM,
                                     CodeGenOptLevel OptLevel);
+FunctionPass *createTMS9900LongBranchPass();
 
 } // end namespace llvm
 
