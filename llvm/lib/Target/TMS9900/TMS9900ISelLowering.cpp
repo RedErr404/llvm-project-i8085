@@ -204,11 +204,11 @@ TMS9900TargetLowering::TMS9900TargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::SDIVREM, MVT::i32, Expand);
   setOperationAction(ISD::UDIVREM, MVT::i32, Expand);
 
-  // 32-bit shifts - expand to shift_parts, then handle with libcalls
+  // 32-bit shifts - custom lower (inline constant shifts, libcall for variable)
   // __ashlsi3 (shift left), __lshrsi3 (logical right), __ashrsi3 (arithmetic right)
-  setOperationAction(ISD::SHL, MVT::i32, Expand);
-  setOperationAction(ISD::SRA, MVT::i32, Expand);
-  setOperationAction(ISD::SRL, MVT::i32, Expand);
+  setOperationAction(ISD::SHL, MVT::i32, Custom);
+  setOperationAction(ISD::SRA, MVT::i32, Custom);
+  setOperationAction(ISD::SRL, MVT::i32, Custom);
 
   // Multi-word shift parts - custom handling for libcalls
   setOperationAction(ISD::SHL_PARTS, MVT::i16, Custom);
@@ -409,6 +409,10 @@ SDValue TMS9900TargetLowering::LowerOperation(SDValue Op,
     return LowerShiftParts(Op, DAG, false, true);
   case ISD::SRL_PARTS:
     return LowerShiftParts(Op, DAG, false, false);
+  case ISD::SHL:
+  case ISD::SRA:
+  case ISD::SRL:
+    return LowerShift32(Op, DAG);
   case ISD::VASTART:
     return LowerVASTART(Op, DAG);
   }
@@ -584,7 +588,6 @@ SDValue TMS9900TargetLowering::LowerShiftParts(SDValue Op, SelectionDAG &DAG,
 
   // For now, we generate a libcall for variable shifts to keep code simple.
   // The libcall approach is still available in libtms9900.
-  // TODO: For constant shifts, we could generate inline code.
 
   // Check if shift amount is a constant
   if (ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Amt)) {
@@ -711,6 +714,89 @@ SDValue TMS9900TargetLowering::LowerShift32(SDValue Op, SelectionDAG &DAG) const
 
   SDValue Val = Op.getOperand(0);
   SDValue Amt = Op.getOperand(1);
+
+  if (ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Amt)) {
+    unsigned ShiftAmt = CN->getZExtValue();
+
+    if (ShiftAmt == 0)
+      return Val;
+
+    SDValue Lo = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, Val,
+                             DAG.getConstant(0, DL, MVT::i16));
+    SDValue Hi = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, Val,
+                             DAG.getConstant(1, DL, MVT::i16));
+
+    SDValue ResLo;
+    SDValue ResHi;
+    EVT HalfVT = MVT::i16;
+
+    if (ShiftAmt >= 32) {
+      if (Op.getOpcode() == ISD::SHL || Op.getOpcode() == ISD::SRL) {
+        ResLo = DAG.getConstant(0, DL, HalfVT);
+        ResHi = DAG.getConstant(0, DL, HalfVT);
+      } else {
+        SDValue Sign = DAG.getNode(ISD::SRA, DL, HalfVT, Hi,
+                                   DAG.getConstant(15, DL, HalfVT));
+        ResLo = Sign;
+        ResHi = Sign;
+      }
+      return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, ResLo, ResHi);
+    }
+
+    if (ShiftAmt == 16) {
+      if (Op.getOpcode() == ISD::SHL) {
+        ResLo = DAG.getConstant(0, DL, HalfVT);
+        ResHi = Lo;
+      } else {
+        ResLo = Hi;
+        if (Op.getOpcode() == ISD::SRA) {
+          ResHi = DAG.getNode(ISD::SRA, DL, HalfVT, Hi,
+                              DAG.getConstant(15, DL, HalfVT));
+        } else {
+          ResHi = DAG.getConstant(0, DL, HalfVT);
+        }
+      }
+      return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, ResLo, ResHi);
+    }
+
+    if (ShiftAmt > 16) {
+      unsigned SmallShift = ShiftAmt - 16;
+      SDValue SmallAmt = DAG.getConstant(SmallShift, DL, HalfVT);
+      if (Op.getOpcode() == ISD::SHL) {
+        ResLo = DAG.getConstant(0, DL, HalfVT);
+        ResHi = DAG.getNode(ISD::SHL, DL, HalfVT, Lo, SmallAmt);
+      } else if (Op.getOpcode() == ISD::SRA) {
+        ResLo = DAG.getNode(ISD::SRA, DL, HalfVT, Hi, SmallAmt);
+        ResHi = DAG.getNode(ISD::SRA, DL, HalfVT, Hi,
+                            DAG.getConstant(15, DL, HalfVT));
+      } else {
+        ResLo = DAG.getNode(ISD::SRL, DL, HalfVT, Hi, SmallAmt);
+        ResHi = DAG.getConstant(0, DL, HalfVT);
+      }
+      return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, ResLo, ResHi);
+    }
+
+    SDValue ShiftAmtVal = DAG.getConstant(ShiftAmt, DL, HalfVT);
+    SDValue InvShiftAmt = DAG.getConstant(16 - ShiftAmt, DL, HalfVT);
+
+    if (Op.getOpcode() == ISD::SHL) {
+      SDValue HiShifted = DAG.getNode(ISD::SHL, DL, HalfVT, Hi, ShiftAmtVal);
+      SDValue LoBits = DAG.getNode(ISD::SRL, DL, HalfVT, Lo, InvShiftAmt);
+      ResHi = DAG.getNode(ISD::OR, DL, HalfVT, HiShifted, LoBits);
+      ResLo = DAG.getNode(ISD::SHL, DL, HalfVT, Lo, ShiftAmtVal);
+    } else {
+      SDValue LoShifted = DAG.getNode(ISD::SRL, DL, HalfVT, Lo, ShiftAmtVal);
+      SDValue HiBits = DAG.getNode(ISD::SHL, DL, HalfVT, Hi, InvShiftAmt);
+      ResLo = DAG.getNode(ISD::OR, DL, HalfVT, LoShifted, HiBits);
+      if (Op.getOpcode() == ISD::SRA) {
+        ResHi = DAG.getNode(ISD::SRA, DL, HalfVT, Hi, ShiftAmtVal);
+      } else {
+        ResHi = DAG.getNode(ISD::SRL, DL, HalfVT, Hi, ShiftAmtVal);
+      }
+    }
+
+    return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i32, ResLo, ResHi);
+  }
 
   // Determine which libcall to use
   RTLIB::Libcall LC;
