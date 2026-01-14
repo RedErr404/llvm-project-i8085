@@ -25,6 +25,110 @@
 using namespace llvm;
 
 namespace {
+static bool tryFoldPostInc(MachineInstr &IncMI,
+                           const TargetInstrInfo *TII,
+                           const TargetRegisterInfo *TRI) {
+  int64_t IncAmount = 0;
+  unsigned IncOpc = IncMI.getOpcode();
+  if (IncOpc == TMS9900::AI) {
+    if (!IncMI.getOperand(2).isImm())
+      return false;
+    IncAmount = IncMI.getOperand(2).getImm();
+  } else if (IncOpc == TMS9900::INCr) {
+    IncAmount = 1;
+  } else if (IncOpc == TMS9900::INCTr) {
+    IncAmount = 2;
+  } else {
+    return false;
+  }
+
+  if (IncAmount != 1 && IncAmount != 2)
+    return false;
+
+  MachineInstr *Prev = IncMI.getPrevNode();
+  while (Prev && Prev->isDebugInstr())
+    Prev = Prev->getPrevNode();
+  if (!Prev)
+    return false;
+
+  unsigned NewOpc = 0;
+  bool IsLoad = false;
+  bool IsByte = false;
+  Register AddrReg;
+  Register ValueReg;
+
+  switch (Prev->getOpcode()) {
+  default:
+    return false;
+  case TMS9900::MOVim:
+    IsLoad = true;
+    IsByte = false;
+    NewOpc = TMS9900::MOVpim;
+    ValueReg = Prev->getOperand(0).getReg();
+    AddrReg = Prev->getOperand(1).getReg();
+    break;
+  case TMS9900::MOVBim:
+    IsLoad = true;
+    IsByte = true;
+    NewOpc = TMS9900::MOVBpim;
+    ValueReg = Prev->getOperand(0).getReg();
+    AddrReg = Prev->getOperand(1).getReg();
+    break;
+  case TMS9900::MOVmi:
+    IsLoad = false;
+    IsByte = false;
+    NewOpc = TMS9900::MOVmpi;
+    AddrReg = Prev->getOperand(0).getReg();
+    ValueReg = Prev->getOperand(1).getReg();
+    break;
+  case TMS9900::MOVBmi:
+    IsLoad = false;
+    IsByte = true;
+    NewOpc = TMS9900::MOVBmpi;
+    AddrReg = Prev->getOperand(0).getReg();
+    ValueReg = Prev->getOperand(1).getReg();
+    break;
+  }
+
+  if (IsByte && IncAmount != 1)
+    return false;
+  if (!IsByte && IncAmount != 2)
+    return false;
+
+  if (IncMI.getOperand(0).getReg() != AddrReg ||
+      IncMI.getOperand(1).getReg() != AddrReg) {
+    return false;
+  }
+
+  MachineBasicBlock &MBB = *IncMI.getParent();
+  DebugLoc DL = Prev->getDebugLoc();
+  bool DeadAddr = IncMI.getOperand(0).isDead();
+  bool KillAddr = IncMI.getOperand(1).isKill();
+  bool DeadST = Prev->registerDefIsDead(TMS9900::ST, TRI);
+
+  MachineInstrBuilder MIB = BuildMI(MBB, Prev, DL, TII->get(NewOpc));
+  if (IsLoad) {
+    bool DeadValue = Prev->getOperand(0).isDead();
+    MIB.addReg(ValueReg, RegState::Define | (DeadValue ? RegState::Dead : 0));
+    MIB.addReg(AddrReg, RegState::Define | (DeadAddr ? RegState::Dead : 0));
+    MIB.addReg(AddrReg, KillAddr ? RegState::Kill : 0);
+  } else {
+    MIB.addReg(AddrReg, RegState::Define | (DeadAddr ? RegState::Dead : 0));
+    MIB.addReg(AddrReg, KillAddr ? RegState::Kill : 0);
+    unsigned ValFlags = Prev->getOperand(1).isKill() ? RegState::Kill : 0;
+    MIB.addReg(ValueReg, ValFlags);
+  }
+
+  if (int STIdx = MIB->findRegisterDefOperandIdx(TMS9900::ST, true);
+      STIdx != -1 && DeadST) {
+    MIB->getOperand(STIdx).setIsDead();
+  }
+
+  Prev->eraseFromParent();
+  IncMI.eraseFromParent();
+  return true;
+}
+
 class TMS9900PeepholePass : public MachineFunctionPass {
 public:
   static char ID;
@@ -41,6 +145,11 @@ public:
       for (auto It = MBB.instr_begin(); It != MBB.instr_end(); ) {
         MachineInstr &MI = *It++;
         unsigned Opc = MI.getOpcode();
+
+        if (tryFoldPostInc(MI, TII, TRI)) {
+          Changed = true;
+          continue;
+        }
 
         if (Opc == TMS9900::AI) {
           if (!MI.getOperand(2).isImm())
