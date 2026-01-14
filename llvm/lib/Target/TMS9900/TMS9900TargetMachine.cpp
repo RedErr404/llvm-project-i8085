@@ -21,8 +21,14 @@
 #include "llvm/InitializePasses.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/PassRegistry.h"
+#include "llvm/Support/CommandLine.h"
 
 using namespace llvm;
+
+static cl::opt<bool> DisableTMS9900Peephole(
+    "tms9900-disable-peephole",
+    cl::desc("Disable TMS9900 peephole optimizations"),
+    cl::init(false), cl::Hidden);
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeTMS9900Target() {
   // Register the target
@@ -106,7 +112,8 @@ bool TMS9900PassConfig::addInstSelector() {
 }
 
 void TMS9900PassConfig::addPreEmitPass() {
-  addPass(createTMS9900PeepholePass());
+  if (!DisableTMS9900Peephole)
+    addPass(createTMS9900PeepholePass());
   addPass(&BranchRelaxationPassID);
   addPass(createTMS9900LongBranchPass());
 }
