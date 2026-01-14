@@ -23,6 +23,7 @@ add_llvm_target(TMS9900CodeGen
   TMS9900LongBranch.cpp
   TMS9900MachineFunctionInfo.cpp
   TMS9900MCInstLower.cpp
+  TMS9900Peephole.cpp
   TMS9900RegisterInfo.cpp
   TMS9900Subtarget.cpp
   TMS9900TargetMachine.cpp

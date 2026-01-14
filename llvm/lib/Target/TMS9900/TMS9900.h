@@ -32,7 +32,9 @@ class PassRegistry;
 
 FunctionPass *createTMS9900ISelDag(TMS9900TargetMachine &TM,
                                     CodeGenOptLevel OptLevel);
+FunctionPass *createTMS9900PeepholePass();
 FunctionPass *createTMS9900LongBranchPass();
+void initializeTMS9900PeepholePassPass(PassRegistry &);
 void initializeTMS9900LongBranchPassPass(PassRegistry &);
 
 } // end namespace llvm

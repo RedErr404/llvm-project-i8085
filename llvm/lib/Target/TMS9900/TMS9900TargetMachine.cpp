@@ -28,6 +28,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeTMS9900Target() {
   // Register the target
   RegisterTargetMachine<TMS9900TargetMachine> X(getTheTMS9900Target());
   PassRegistry &PR = *PassRegistry::getPassRegistry();
+  initializeTMS9900PeepholePassPass(PR);
   initializeTMS9900LongBranchPassPass(PR);
 }
 
@@ -105,6 +106,7 @@ bool TMS9900PassConfig::addInstSelector() {
 }
 
 void TMS9900PassConfig::addPreEmitPass() {
+  addPass(createTMS9900PeepholePass());
   addPass(&BranchRelaxationPassID);
   addPass(createTMS9900LongBranchPass());
 }
