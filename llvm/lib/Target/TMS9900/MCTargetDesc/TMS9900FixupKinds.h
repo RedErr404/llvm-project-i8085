@@ -21,6 +21,9 @@ enum Fixups {
   // A 16 bit absolute fixup (for addresses in instruction words).
   fixup_tms9900_16 = FirstTargetFixupKind,
 
+  // An 8 bit absolute fixup (for CRU bit displacements).
+  fixup_tms9900_8,
+
   // A 8 bit PC relative fixup for jump instructions (Format 6).
   // The displacement is signed and in words (multiply by 2 for bytes).
   fixup_tms9900_pcrel_8,

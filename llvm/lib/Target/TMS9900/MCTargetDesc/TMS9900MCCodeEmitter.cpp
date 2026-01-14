@@ -60,6 +60,10 @@ class TMS9900MCCodeEmitter : public MCCodeEmitter {
                               SmallVectorImpl<MCFixup> &Fixups,
                               const MCSubtargetInfo &STI) const;
 
+  unsigned getCRUDispEncoding(const MCInst &MI, unsigned Op,
+                              SmallVectorImpl<MCFixup> &Fixups,
+                              const MCSubtargetInfo &STI) const;
+
   unsigned getBranchTargetEncoding(const MCInst &MI, unsigned Op,
                                    SmallVectorImpl<MCFixup> &Fixups,
                                    const MCSubtargetInfo &STI) const;
@@ -152,6 +156,19 @@ unsigned TMS9900MCCodeEmitter::getPCRelImmOpValue(const MCInst &MI, unsigned Op,
   assert(MO.isExpr() && "Expr operand expected");
   Fixups.push_back(MCFixup::create(0, MO.getExpr(),
       static_cast<MCFixupKind>(TMS9900::fixup_tms9900_pcrel_8), MI.getLoc()));
+  return 0;
+}
+
+unsigned TMS9900MCCodeEmitter::getCRUDispEncoding(const MCInst &MI, unsigned Op,
+                                                   SmallVectorImpl<MCFixup> &Fixups,
+                                                   const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(Op);
+  if (MO.isImm())
+    return MO.getImm() & 0xFF;
+
+  assert(MO.isExpr() && "Expr operand expected");
+  Fixups.push_back(MCFixup::create(0, MO.getExpr(),
+      static_cast<MCFixupKind>(TMS9900::fixup_tms9900_8), MI.getLoc()));
   return 0;
 }
 

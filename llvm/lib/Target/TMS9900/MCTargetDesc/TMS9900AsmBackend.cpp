@@ -174,6 +174,7 @@ public:
         //
         // name                    offset bits flags
         {"fixup_tms9900_16",       0,     16,  0},
+        {"fixup_tms9900_8",        0,     8,   0},
         {"fixup_tms9900_pcrel_8",  0,     8,   MCFixupKindInfo::FKF_IsPCRel},
         {"fixup_tms9900_pcrel_16", 0,     16,  MCFixupKindInfo::FKF_IsPCRel},
     };
@@ -195,6 +196,12 @@ uint64_t TMS9900AsmBackend::adjustFixupValue(const MCFixup &Fixup,
                                               MCContext &Ctx) const {
   unsigned Kind = Fixup.getKind();
   switch (Kind) {
+  case TMS9900::fixup_tms9900_8: {
+    int64_t SignedVal = static_cast<int64_t>(Value);
+    if (SignedVal < -128 || SignedVal > 127)
+      Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+    return static_cast<uint64_t>(SignedVal) & 0xFF;
+  }
   case TMS9900::fixup_tms9900_pcrel_8: {
     // PC-relative 8-bit displacement for jump instructions
     // TMS9900 jumps: displacement is in words, signed, relative to next instr
@@ -232,7 +239,8 @@ void TMS9900AsmBackend::applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,
   unsigned Kind = Fixup.getKind();
 
   // Handle TMS9900-specific fixups
-  if (Kind == TMS9900::fixup_tms9900_pcrel_8) {
+  if (Kind == TMS9900::fixup_tms9900_pcrel_8 ||
+      Kind == TMS9900::fixup_tms9900_8) {
     // 8-bit displacement in the LOW byte of a 16-bit instruction word
     // For big-endian, low byte is at offset+1
     assert(Offset + 2 <= Data.size() && "Invalid fixup offset!");

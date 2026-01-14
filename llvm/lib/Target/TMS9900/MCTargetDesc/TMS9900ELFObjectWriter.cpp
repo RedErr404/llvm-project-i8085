@@ -27,6 +27,7 @@ enum {
   R_TMS9900_16 = 1,
   R_TMS9900_PCREL_8 = 2,
   R_TMS9900_PCREL_16 = 3,
+  R_TMS9900_8 = 4,
 };
 
 class TMS9900ELFObjectWriter : public MCELFObjectTargetWriter {
@@ -50,6 +51,8 @@ protected:
       return R_TMS9900_16;  // Use 16-bit for 32-bit too (will be split)
     case TMS9900::fixup_tms9900_16:
       return R_TMS9900_16;
+    case TMS9900::fixup_tms9900_8:
+      return R_TMS9900_8;
     case TMS9900::fixup_tms9900_pcrel_8:
       return R_TMS9900_PCREL_8;
     case TMS9900::fixup_tms9900_pcrel_16:

@@ -154,7 +154,7 @@ public:
       return false;
     int64_t Value;
     if (!Imm->evaluateAsAbsolute(Value))
-      return false;
+      return true;
     return isInt<8>(Value);
   }
   bool isTMS9900Mem() const { return Kind == k_Mem; }

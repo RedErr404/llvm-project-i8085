@@ -171,6 +171,7 @@ def cru_count : Operand<i16> {
 // CRU signed displacement (-128..127)
 def cru_disp8 : Operand<i16> {
   let ParserMatchClass = TMS9900CRUDispAsmOperand;
+  let EncoderMethod = "getCRUDispEncoding";
   let DecoderMethod = "decodeCRUDisp";
 }
 
