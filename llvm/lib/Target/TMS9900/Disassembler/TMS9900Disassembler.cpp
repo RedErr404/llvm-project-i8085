@@ -88,7 +88,6 @@ static const Format1Info Format1Opcodes[] = {
     {0xE, TMS9900::SOCrr,  "SOC"},    // 1110
     {0x4, TMS9900::SZCrr,  "SZC"},    // 0100
     {0xC, TMS9900::MOVrr,  "MOV"},    // 1100
-    // Note: Byte instructions (AB, CB, SB, SOCB, SZCB, MOVB) not yet implemented
 };
 
 // Format 3: [opcode:10][Ts:2][S:4] - Single operand
@@ -334,6 +333,26 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
     unsigned S = Insn & 0xF;
 
     switch (Op6) {
+    case 0x08: { // COC
+      if (Ts != 0)
+        return MCDisassembler::Fail;
+      MI.setOpcode(TMS9900::COCrr);
+      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      return MCDisassembler::Success;
+    }
+    case 0x09: { // CZC
+      if (Ts != 0)
+        return MCDisassembler::Fail;
+      MI.setOpcode(TMS9900::CZCrr);
+      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+        return MCDisassembler::Fail;
+      return MCDisassembler::Success;
+    }
     case 0x0A: { // XOR
       if (Ts != 0)
         return MCDisassembler::Fail;
@@ -728,13 +747,13 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
       case 0xA: Opcode = TMS9900::Arr; needsTiedOperand = true; break;
       case 0xC: Opcode = TMS9900::MOVrr; break;
       case 0xE: Opcode = TMS9900::SOCrr; needsTiedOperand = true; break;
-      // Byte operations - use word equivalents for display
-      case 0x5: Opcode = TMS9900::SZCrr; needsTiedOperand = true; break;  // SZCB
-      case 0x7: Opcode = TMS9900::Srr; needsTiedOperand = true; break;    // SB
-      case 0x9: Opcode = TMS9900::Crr; isCompare = true; break;           // CB
-      case 0xB: Opcode = TMS9900::Arr; needsTiedOperand = true; break;    // AB
-      case 0xD: Opcode = TMS9900::MOVrr; break;                           // MOVB
-      case 0xF: Opcode = TMS9900::SOCrr; needsTiedOperand = true; break;  // SOCB
+      // Byte operations
+      case 0x5: Opcode = TMS9900::SZCBrr; needsTiedOperand = true; break;
+      case 0x7: Opcode = TMS9900::SBrr; needsTiedOperand = true; break;
+      case 0x9: Opcode = TMS9900::CBrr; isCompare = true; break;
+      case 0xB: Opcode = TMS9900::ABrr; needsTiedOperand = true; break;
+      case 0xD: Opcode = TMS9900::MOVBrr; break;
+      case 0xF: Opcode = TMS9900::SOCBrr; needsTiedOperand = true; break;
       default:
         return MCDisassembler::Fail;
       }

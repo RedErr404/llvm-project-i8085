@@ -276,6 +276,11 @@ let Defs = [ST] in
 def MOVrr : Format1_Reg<0b1100, 0, (outs GR16:$rd), (ins GR16:$rs),
                         "MOV\t$rs,$rd", []>;
 
+// MOVB - Move byte (register to register)
+let Defs = [ST] in
+def MOVBrr : Format1_Reg<0b1100, 1, (outs GR16:$rd), (ins GR16:$rs),
+                         "MOVB\t$rs,$rd", []>;
+
 //===----------------------------------------------------------------------===//
 // Memory Load Instructions
 //===----------------------------------------------------------------------===//
@@ -602,6 +607,13 @@ def Arr : Format1_Reg_TwoAddr<0b1010, 0, (outs GR16:$rd), (ins GR16:$rs1, GR16:$
   let Constraints = "$rd = $rs1";
 }
 
+// AB - Add Byte
+def ABrr : Format1_Reg_TwoAddr<0b1010, 1, (outs GR16:$rd), (ins GR16:$rs1, GR16:$rs2),
+                               "AB\t$rs2,$rd",
+                               []> {
+  let Constraints = "$rd = $rs1";
+}
+
 // AI - Add Immediate (subop=2)
 def AI : Format8<0b0010, (outs GR16:$rd), (ins GR16:$rs, i16imm:$imm),
                  "AI\t$rs,$imm",
@@ -613,6 +625,13 @@ def AI : Format8<0b0010, (outs GR16:$rd), (ins GR16:$rs, i16imm:$imm),
 def Srr : Format1_Reg_TwoAddr<0b0110, 0, (outs GR16:$rd), (ins GR16:$rs1, GR16:$rs2),
                               "S\t$rs2,$rd",
                               [(set GR16:$rd, (sub GR16:$rs1, GR16:$rs2))]> {
+  let Constraints = "$rd = $rs1";
+}
+
+// SB - Subtract Byte
+def SBrr : Format1_Reg_TwoAddr<0b0110, 1, (outs GR16:$rd), (ins GR16:$rs1, GR16:$rs2),
+                               "SB\t$rs2,$rd",
+                               []> {
   let Constraints = "$rd = $rs1";
 }
 
@@ -882,6 +901,13 @@ def SOCrr : Format1_Reg_TwoAddr<0b1110, 0, (outs GR16:$rd), (ins GR16:$rs1, GR16
   let Constraints = "$rd = $rs1";
 }
 
+// SOCB - Set Ones Corresponding Byte
+def SOCBrr : Format1_Reg_TwoAddr<0b1110, 1, (outs GR16:$rd), (ins GR16:$rs1, GR16:$rs2),
+                                 "SOCB\t$rs2,$rd",
+                                 []> {
+  let Constraints = "$rd = $rs1";
+}
+
 // ORI - OR Immediate (subop=6)
 def ORI : Format8<0b0110, (outs GR16:$rd), (ins GR16:$rs, i16imm:$imm),
                   "ORI\t$rs,$imm",
@@ -894,6 +920,13 @@ def ORI : Format8<0b0110, (outs GR16:$rd), (ins GR16:$rs, i16imm:$imm),
 def SZCrr : Format1_Reg_TwoAddr<0b0100, 0, (outs GR16:$rd), (ins GR16:$rs1, GR16:$rs2),
                                 "SZC\t$rs2,$rd",
                                 [(set GR16:$rd, (and GR16:$rs1, (not GR16:$rs2)))]> {
+  let Constraints = "$rd = $rs1";
+}
+
+// SZCB - Set Zeros Corresponding Byte
+def SZCBrr : Format1_Reg_TwoAddr<0b0100, 1, (outs GR16:$rd), (ins GR16:$rs1, GR16:$rs2),
+                                 "SZCB\t$rs2,$rd",
+                                 []> {
   let Constraints = "$rd = $rs1";
 }
 
@@ -910,6 +943,14 @@ def XORrr : Format2_Reg_TwoAddr<0b001010, (outs GR16:$rd), (ins GR16:$rs1, GR16:
                                 [(set GR16:$rd, (xor GR16:$rs1, GR16:$rs2))]> {
   let Constraints = "$rd = $rs1";
 }
+
+// COC/CZC - Compare Ones/Zeros Corresponding
+def COCrr : Format2_Reg<0b001000, (outs), (ins GR16:$rd, GR16:$rs),
+                        "COC\t$rs,$rd",
+                        []>;
+def CZCrr : Format2_Reg<0b001001, (outs), (ins GR16:$rd, GR16:$rs),
+                        "CZC\t$rs,$rd",
+                        []>;
 
 } // Defs = [ST]
 
@@ -1006,6 +1047,9 @@ let Defs = [ST] in {
 def Crr : Format1_Reg_Cmp<0b1000, 0, (outs), (ins GR16:$rs1, GR16:$rs2),
                           "C\t$rs1,$rs2",
                           [(TMS9900cmp GR16:$rs1, GR16:$rs2)]>;
+def CBrr : Format1_Reg_Cmp<0b1000, 1, (outs), (ins GR16:$rs1, GR16:$rs2),
+                           "CB\t$rs1,$rs2",
+                           []>;
 
 // CI - Compare Immediate (subop=8)
 def CI : Format8_Cmp<0b1000, (outs), (ins GR16:$rs, i16imm:$imm),

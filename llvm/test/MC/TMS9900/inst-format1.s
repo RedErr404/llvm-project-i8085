@@ -12,6 +12,7 @@
   mov @16(r3), r4
   mov r5, @16(r6)
 
+  movb r1, r2
   movb *r1, r2
   movb r3, *r4
   movb *r5+, r6
@@ -26,6 +27,11 @@
   c r5, r6
   soc r7, r8
   szc r9, r10
+  ab r3, r4
+  sb r5, r6
+  cb r7, r8
+  socb r9, r10
+  szcb r11, r12
 
 ; CHECK: MOV{{[ \t]+}}R1,R2{{[ \t]+}}; encoding: [0xc0,0x81]
 ; CHECK: MOV{{[ \t]+}}*R3,R4{{[ \t]+}}; encoding: [0xc1,0x13]
@@ -37,6 +43,7 @@
 ; CHECK: MOV{{[ \t]+}}@16(R3),R4{{[ \t]+}}; encoding: [0xc1,0x23,0x00,0x10]
 ; CHECK: MOV{{[ \t]+}}R5,@16(R6){{[ \t]+}}; encoding: [0xc9,0x85,0x00,0x10]
 
+; CHECK: MOVB{{[ \t]+}}R1,R2{{[ \t]+}}; encoding: [0xd0,0x81]
 ; CHECK: MOVB{{[ \t]+}}*R1,R2{{[ \t]+}}; encoding: [0xd0,0x91]
 ; CHECK: MOVB{{[ \t]+}}R3,*R4{{[ \t]+}}; encoding: [0xd5,0x03]
 ; CHECK: MOVB{{[ \t]+}}*R5+,R6{{[ \t]+}}; encoding: [0xd1,0xb5]
@@ -51,6 +58,11 @@
 ; CHECK: C{{[ \t]+}}R5,R6{{[ \t]+}}; encoding: [0x81,0x46]
 ; CHECK: SOC{{[ \t]+}}R7,R8{{[ \t]+}}; encoding: [0xe2,0x07]
 ; CHECK: SZC{{[ \t]+}}R9,R10{{[ \t]+}}; encoding: [0x42,0x89]
+; CHECK: AB{{[ \t]+}}R3,R4{{[ \t]+}}; encoding: [0xb1,0x03]
+; CHECK: SB{{[ \t]+}}R5,R6{{[ \t]+}}; encoding: [0x71,0x85]
+; CHECK: CB{{[ \t]+}}R7,R8{{[ \t]+}}; encoding: [0x91,0xc8]
+; CHECK: SOCB{{[ \t]+}}R9,R10{{[ \t]+}}; encoding: [0xf2,0x89]
+; CHECK: SZCB{{[ \t]+}}R11,R12{{[ \t]+}}; encoding: [0x53,0x0b]
 
 ; DISASM: {{[0-9a-f]+}}: c0 81{{[ \t]+}}MOV{{[ \t]+}}R1,R2
 ; DISASM: {{[0-9a-f]+}}: c1 13{{[ \t]+}}MOV{{[ \t]+}}*R3,R4
@@ -62,6 +74,7 @@
 ; DISASM: {{[0-9a-f]+}}: c1 23 00 10{{[ \t]+}}MOV{{[ \t]+}}@16(R3),R4
 ; DISASM: {{[0-9a-f]+}}: c9 85 00 10{{[ \t]+}}MOV{{[ \t]+}}R5,@16(R6)
 
+; DISASM: {{[0-9a-f]+}}: d0 81{{[ \t]+}}MOVB{{[ \t]+}}R1,R2
 ; DISASM: {{[0-9a-f]+}}: d0 91{{[ \t]+}}MOVB{{[ \t]+}}*R1,R2
 ; DISASM: {{[0-9a-f]+}}: d5 03{{[ \t]+}}MOVB{{[ \t]+}}R3,*R4
 ; DISASM: {{[0-9a-f]+}}: d1 b5{{[ \t]+}}MOVB{{[ \t]+}}*R5+,R6
@@ -76,3 +89,8 @@
 ; DISASM: {{[0-9a-f]+}}: 81 46{{[ \t]+}}C{{[ \t]+}}R5,R6
 ; DISASM: {{[0-9a-f]+}}: e2 07{{[ \t]+}}SOC{{[ \t]+}}R7,R8
 ; DISASM: {{[0-9a-f]+}}: 42 89{{[ \t]+}}SZC{{[ \t]+}}R9,R10
+; DISASM: {{[0-9a-f]+}}: b1 03{{[ \t]+}}AB{{[ \t]+}}R3,R4
+; DISASM: {{[0-9a-f]+}}: 71 85{{[ \t]+}}SB{{[ \t]+}}R5,R6
+; DISASM: {{[0-9a-f]+}}: 91 c8{{[ \t]+}}CB{{[ \t]+}}R7,R8
+; DISASM: {{[0-9a-f]+}}: f2 89{{[ \t]+}}SOCB{{[ \t]+}}R9,R10
+; DISASM: {{[0-9a-f]+}}: 53 0b{{[ \t]+}}SZCB{{[ \t]+}}R11,R12
