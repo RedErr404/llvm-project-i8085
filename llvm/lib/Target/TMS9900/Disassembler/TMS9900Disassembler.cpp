@@ -96,8 +96,6 @@ static DecodeStatus decodeShiftCount(MCInst &MI, uint64_t Bits,
                                      uint64_t Address,
                                      const MCDisassembler *Decoder) {
   uint64_t Count = Bits & 0xF;
-  if (Count == 0)
-    Count = 16;
   MI.addOperand(MCOperand::createImm(Count));
   return MCDisassembler::Success;
 }

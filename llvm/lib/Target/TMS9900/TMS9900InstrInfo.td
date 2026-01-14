@@ -157,7 +157,7 @@ def imm4 : Operand<i16> {
   let ParserMatchClass = TMS9900Imm4AsmOperand;
 }
 
-// Shift count (0 encoded as 16 in disassembly)
+// Shift count (0 uses R0 for the count)
 def shcount : Operand<i16> {
   let ParserMatchClass = TMS9900Imm4AsmOperand;
   let DecoderMethod = "decodeShiftCount";
