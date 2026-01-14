@@ -614,6 +614,44 @@ def ABrr : Format1_Reg_TwoAddr<0b1010, 1, (outs GR16:$rd), (ins GR16:$rs1, GR16:
   let Constraints = "$rd = $rs1";
 }
 
+def Aim : Format1_IndLoad<0b1010, 0, (outs GR16:$rd), (ins GR16:$rs),
+                          "A\t*$rs,$rd", []>;
+def Aam : Format1_SymLoad<0b1010, 0, (outs GR16:$rd), (ins symaddr:$addr),
+                          "A\t@$addr,$rd", []>;
+def Axm : Format1_IdxLoad<0b1010, 0, (outs GR16:$rd),
+                          (ins i16imm:$offset, IdxRegs:$ri),
+                          "A\t@${offset}(${ri}),$rd", []>;
+def Apim : Format1_AutoIncLoad<0b1010, 0, (outs GR16:$rd), (ins GR16:$rs),
+                               "A\t*${rs}+,$rd", []>;
+def Ami : Format1_IndStore<0b1010, 0, (outs), (ins GR16:$rd, GR16:$rs),
+                           "A\t$rs,*$rd", []>;
+def Ama : Format1_SymStore<0b1010, 0, (outs), (ins symaddr:$addr, GR16:$rs),
+                           "A\t$rs,@$addr", []>;
+def Amx : Format1_IdxStore<0b1010, 0, (outs),
+                           (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
+                           "A\t$rs,@${offset}(${ri})", []>;
+def Ampi : Format1_AutoIncStore<0b1010, 0, (outs), (ins GR16:$rd, GR16:$rs),
+                                "A\t$rs,*${rd}+", []>;
+
+def ABim : Format1_IndLoad<0b1010, 1, (outs GR16:$rd), (ins GR16:$rs),
+                           "AB\t*$rs,$rd", []>;
+def ABam : Format1_SymLoad<0b1010, 1, (outs GR16:$rd), (ins symaddr:$addr),
+                           "AB\t@$addr,$rd", []>;
+def ABxm : Format1_IdxLoad<0b1010, 1, (outs GR16:$rd),
+                           (ins i16imm:$offset, IdxRegs:$ri),
+                           "AB\t@${offset}(${ri}),$rd", []>;
+def ABpim : Format1_AutoIncLoad<0b1010, 1, (outs GR16:$rd), (ins GR16:$rs),
+                                "AB\t*${rs}+,$rd", []>;
+def ABmi : Format1_IndStore<0b1010, 1, (outs), (ins GR16:$rd, GR16:$rs),
+                            "AB\t$rs,*$rd", []>;
+def ABma : Format1_SymStore<0b1010, 1, (outs), (ins symaddr:$addr, GR16:$rs),
+                            "AB\t$rs,@$addr", []>;
+def ABmx : Format1_IdxStore<0b1010, 1, (outs),
+                            (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
+                            "AB\t$rs,@${offset}(${ri})", []>;
+def ABmpi : Format1_AutoIncStore<0b1010, 1, (outs), (ins GR16:$rd, GR16:$rs),
+                                 "AB\t$rs,*${rd}+", []>;
+
 // AI - Add Immediate (subop=2)
 def AI : Format8<0b0010, (outs GR16:$rd), (ins GR16:$rs, i16imm:$imm),
                  "AI\t$rs,$imm",
@@ -634,6 +672,44 @@ def SBrr : Format1_Reg_TwoAddr<0b0110, 1, (outs GR16:$rd), (ins GR16:$rs1, GR16:
                                []> {
   let Constraints = "$rd = $rs1";
 }
+
+def Sim : Format1_IndLoad<0b0110, 0, (outs GR16:$rd), (ins GR16:$rs),
+                          "S\t*$rs,$rd", []>;
+def Sam : Format1_SymLoad<0b0110, 0, (outs GR16:$rd), (ins symaddr:$addr),
+                          "S\t@$addr,$rd", []>;
+def Sxm : Format1_IdxLoad<0b0110, 0, (outs GR16:$rd),
+                          (ins i16imm:$offset, IdxRegs:$ri),
+                          "S\t@${offset}(${ri}),$rd", []>;
+def Spim : Format1_AutoIncLoad<0b0110, 0, (outs GR16:$rd), (ins GR16:$rs),
+                               "S\t*${rs}+,$rd", []>;
+def Smi : Format1_IndStore<0b0110, 0, (outs), (ins GR16:$rd, GR16:$rs),
+                           "S\t$rs,*$rd", []>;
+def Sma : Format1_SymStore<0b0110, 0, (outs), (ins symaddr:$addr, GR16:$rs),
+                           "S\t$rs,@$addr", []>;
+def Smx : Format1_IdxStore<0b0110, 0, (outs),
+                           (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
+                           "S\t$rs,@${offset}(${ri})", []>;
+def Smpi : Format1_AutoIncStore<0b0110, 0, (outs), (ins GR16:$rd, GR16:$rs),
+                                "S\t$rs,*${rd}+", []>;
+
+def SBim : Format1_IndLoad<0b0110, 1, (outs GR16:$rd), (ins GR16:$rs),
+                           "SB\t*$rs,$rd", []>;
+def SBam : Format1_SymLoad<0b0110, 1, (outs GR16:$rd), (ins symaddr:$addr),
+                           "SB\t@$addr,$rd", []>;
+def SBxm : Format1_IdxLoad<0b0110, 1, (outs GR16:$rd),
+                           (ins i16imm:$offset, IdxRegs:$ri),
+                           "SB\t@${offset}(${ri}),$rd", []>;
+def SBpim : Format1_AutoIncLoad<0b0110, 1, (outs GR16:$rd), (ins GR16:$rs),
+                                "SB\t*${rs}+,$rd", []>;
+def SBmi : Format1_IndStore<0b0110, 1, (outs), (ins GR16:$rd, GR16:$rs),
+                            "SB\t$rs,*$rd", []>;
+def SBma : Format1_SymStore<0b0110, 1, (outs), (ins symaddr:$addr, GR16:$rs),
+                            "SB\t$rs,@$addr", []>;
+def SBmx : Format1_IdxStore<0b0110, 1, (outs),
+                            (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
+                            "SB\t$rs,@${offset}(${ri})", []>;
+def SBmpi : Format1_AutoIncStore<0b0110, 1, (outs), (ins GR16:$rd, GR16:$rs),
+                                 "SB\t$rs,*${rd}+", []>;
 
 // INC - Increment by 1
 def INCr : Format3_Reg<0b0000010110, (outs GR16:$rd), (ins GR16:$rs),
@@ -908,6 +984,44 @@ def SOCBrr : Format1_Reg_TwoAddr<0b1110, 1, (outs GR16:$rd), (ins GR16:$rs1, GR1
   let Constraints = "$rd = $rs1";
 }
 
+def SOCim : Format1_IndLoad<0b1110, 0, (outs GR16:$rd), (ins GR16:$rs),
+                            "SOC\t*$rs,$rd", []>;
+def SOCam : Format1_SymLoad<0b1110, 0, (outs GR16:$rd), (ins symaddr:$addr),
+                            "SOC\t@$addr,$rd", []>;
+def SOCxm : Format1_IdxLoad<0b1110, 0, (outs GR16:$rd),
+                            (ins i16imm:$offset, IdxRegs:$ri),
+                            "SOC\t@${offset}(${ri}),$rd", []>;
+def SOCpim : Format1_AutoIncLoad<0b1110, 0, (outs GR16:$rd), (ins GR16:$rs),
+                                 "SOC\t*${rs}+,$rd", []>;
+def SOCmi : Format1_IndStore<0b1110, 0, (outs), (ins GR16:$rd, GR16:$rs),
+                             "SOC\t$rs,*$rd", []>;
+def SOCma : Format1_SymStore<0b1110, 0, (outs), (ins symaddr:$addr, GR16:$rs),
+                             "SOC\t$rs,@$addr", []>;
+def SOCmx : Format1_IdxStore<0b1110, 0, (outs),
+                             (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
+                             "SOC\t$rs,@${offset}(${ri})", []>;
+def SOCmpi : Format1_AutoIncStore<0b1110, 0, (outs), (ins GR16:$rd, GR16:$rs),
+                                  "SOC\t$rs,*${rd}+", []>;
+
+def SOCBim : Format1_IndLoad<0b1110, 1, (outs GR16:$rd), (ins GR16:$rs),
+                             "SOCB\t*$rs,$rd", []>;
+def SOCBam : Format1_SymLoad<0b1110, 1, (outs GR16:$rd), (ins symaddr:$addr),
+                             "SOCB\t@$addr,$rd", []>;
+def SOCBxm : Format1_IdxLoad<0b1110, 1, (outs GR16:$rd),
+                             (ins i16imm:$offset, IdxRegs:$ri),
+                             "SOCB\t@${offset}(${ri}),$rd", []>;
+def SOCBpim : Format1_AutoIncLoad<0b1110, 1, (outs GR16:$rd), (ins GR16:$rs),
+                                  "SOCB\t*${rs}+,$rd", []>;
+def SOCBmi : Format1_IndStore<0b1110, 1, (outs), (ins GR16:$rd, GR16:$rs),
+                              "SOCB\t$rs,*$rd", []>;
+def SOCBma : Format1_SymStore<0b1110, 1, (outs), (ins symaddr:$addr, GR16:$rs),
+                              "SOCB\t$rs,@$addr", []>;
+def SOCBmx : Format1_IdxStore<0b1110, 1, (outs),
+                              (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
+                              "SOCB\t$rs,@${offset}(${ri})", []>;
+def SOCBmpi : Format1_AutoIncStore<0b1110, 1, (outs), (ins GR16:$rd, GR16:$rs),
+                                   "SOCB\t$rs,*${rd}+", []>;
+
 // ORI - OR Immediate (subop=6)
 def ORI : Format8<0b0110, (outs GR16:$rd), (ins GR16:$rs, i16imm:$imm),
                   "ORI\t$rs,$imm",
@@ -930,6 +1044,44 @@ def SZCBrr : Format1_Reg_TwoAddr<0b0100, 1, (outs GR16:$rd), (ins GR16:$rs1, GR1
   let Constraints = "$rd = $rs1";
 }
 
+def SZCim : Format1_IndLoad<0b0100, 0, (outs GR16:$rd), (ins GR16:$rs),
+                            "SZC\t*$rs,$rd", []>;
+def SZCam : Format1_SymLoad<0b0100, 0, (outs GR16:$rd), (ins symaddr:$addr),
+                            "SZC\t@$addr,$rd", []>;
+def SZCxm : Format1_IdxLoad<0b0100, 0, (outs GR16:$rd),
+                            (ins i16imm:$offset, IdxRegs:$ri),
+                            "SZC\t@${offset}(${ri}),$rd", []>;
+def SZCpim : Format1_AutoIncLoad<0b0100, 0, (outs GR16:$rd), (ins GR16:$rs),
+                                 "SZC\t*${rs}+,$rd", []>;
+def SZCmi : Format1_IndStore<0b0100, 0, (outs), (ins GR16:$rd, GR16:$rs),
+                             "SZC\t$rs,*$rd", []>;
+def SZCma : Format1_SymStore<0b0100, 0, (outs), (ins symaddr:$addr, GR16:$rs),
+                             "SZC\t$rs,@$addr", []>;
+def SZCmx : Format1_IdxStore<0b0100, 0, (outs),
+                             (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
+                             "SZC\t$rs,@${offset}(${ri})", []>;
+def SZCmpi : Format1_AutoIncStore<0b0100, 0, (outs), (ins GR16:$rd, GR16:$rs),
+                                  "SZC\t$rs,*${rd}+", []>;
+
+def SZCBim : Format1_IndLoad<0b0100, 1, (outs GR16:$rd), (ins GR16:$rs),
+                             "SZCB\t*$rs,$rd", []>;
+def SZCBam : Format1_SymLoad<0b0100, 1, (outs GR16:$rd), (ins symaddr:$addr),
+                             "SZCB\t@$addr,$rd", []>;
+def SZCBxm : Format1_IdxLoad<0b0100, 1, (outs GR16:$rd),
+                             (ins i16imm:$offset, IdxRegs:$ri),
+                             "SZCB\t@${offset}(${ri}),$rd", []>;
+def SZCBpim : Format1_AutoIncLoad<0b0100, 1, (outs GR16:$rd), (ins GR16:$rs),
+                                  "SZCB\t*${rs}+,$rd", []>;
+def SZCBmi : Format1_IndStore<0b0100, 1, (outs), (ins GR16:$rd, GR16:$rs),
+                              "SZCB\t$rs,*$rd", []>;
+def SZCBma : Format1_SymStore<0b0100, 1, (outs), (ins symaddr:$addr, GR16:$rs),
+                              "SZCB\t$rs,@$addr", []>;
+def SZCBmx : Format1_IdxStore<0b0100, 1, (outs),
+                              (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
+                              "SZCB\t$rs,@${offset}(${ri})", []>;
+def SZCBmpi : Format1_AutoIncStore<0b0100, 1, (outs), (ins GR16:$rd, GR16:$rs),
+                                   "SZCB\t$rs,*${rd}+", []>;
+
 // ANDI - AND Immediate (subop=4)
 def ANDI : Format8<0b0100, (outs GR16:$rd), (ins GR16:$rs, i16imm:$imm),
                    "ANDI\t$rs,$imm",
@@ -951,6 +1103,48 @@ def COCrr : Format2_Reg<0b001000, (outs), (ins GR16:$rd, GR16:$rs),
 def CZCrr : Format2_Reg<0b001001, (outs), (ins GR16:$rd, GR16:$rs),
                         "CZC\t$rs,$rd",
                         []>;
+
+def XORim : Format2_Ind<0b001010, (outs GR16:$rd), (ins GR16:$rs),
+                        "XOR\t*$rs,$rd",
+                        []>;
+def XORam : Format2_Sym<0b001010, (outs GR16:$rd), (ins symaddr:$addr),
+                        "XOR\t@$addr,$rd",
+                        []>;
+def XORxm : Format2_Idx<0b001010, (outs GR16:$rd),
+                        (ins i16imm:$offset, IdxRegs:$ri),
+                        "XOR\t@${offset}(${ri}),$rd",
+                        []>;
+def XORpim : Format2_AutoInc<0b001010, (outs GR16:$rd), (ins GR16:$rs),
+                             "XOR\t*${rs}+,$rd",
+                             []>;
+
+def COCim : Format2_Ind<0b001000, (outs), (ins GR16:$rd, GR16:$rs),
+                        "COC\t*$rs,$rd",
+                        []>;
+def COCam : Format2_Sym<0b001000, (outs), (ins GR16:$rd, symaddr:$addr),
+                        "COC\t@$addr,$rd",
+                        []>;
+def COCxm : Format2_Idx<0b001000, (outs),
+                        (ins GR16:$rd, i16imm:$offset, IdxRegs:$ri),
+                        "COC\t@${offset}(${ri}),$rd",
+                        []>;
+def COCpim : Format2_AutoInc<0b001000, (outs), (ins GR16:$rd, GR16:$rs),
+                             "COC\t*${rs}+,$rd",
+                             []>;
+
+def CZCim : Format2_Ind<0b001001, (outs), (ins GR16:$rd, GR16:$rs),
+                        "CZC\t*$rs,$rd",
+                        []>;
+def CZCam : Format2_Sym<0b001001, (outs), (ins GR16:$rd, symaddr:$addr),
+                        "CZC\t@$addr,$rd",
+                        []>;
+def CZCxm : Format2_Idx<0b001001, (outs),
+                        (ins GR16:$rd, i16imm:$offset, IdxRegs:$ri),
+                        "CZC\t@${offset}(${ri}),$rd",
+                        []>;
+def CZCpim : Format2_AutoInc<0b001001, (outs), (ins GR16:$rd, GR16:$rs),
+                             "CZC\t*${rs}+,$rd",
+                             []>;
 
 } // Defs = [ST]
 
@@ -1050,6 +1244,44 @@ def Crr : Format1_Reg_Cmp<0b1000, 0, (outs), (ins GR16:$rs1, GR16:$rs2),
 def CBrr : Format1_Reg_Cmp<0b1000, 1, (outs), (ins GR16:$rs1, GR16:$rs2),
                            "CB\t$rs1,$rs2",
                            []>;
+
+def Cim : Format1_IndLoad<0b1000, 0, (outs), (ins GR16:$rd, GR16:$rs),
+                          "C\t*$rs,$rd", []>;
+def Cam : Format1_SymLoad<0b1000, 0, (outs), (ins GR16:$rd, symaddr:$addr),
+                          "C\t@$addr,$rd", []>;
+def Cxm : Format1_IdxLoad<0b1000, 0, (outs),
+                          (ins GR16:$rd, i16imm:$offset, IdxRegs:$ri),
+                          "C\t@${offset}(${ri}),$rd", []>;
+def Cpim : Format1_AutoIncLoad<0b1000, 0, (outs), (ins GR16:$rd, GR16:$rs),
+                               "C\t*${rs}+,$rd", []>;
+def Cmi : Format1_IndStore<0b1000, 0, (outs), (ins GR16:$rd, GR16:$rs),
+                           "C\t$rs,*$rd", []>;
+def Cma : Format1_SymStore<0b1000, 0, (outs), (ins symaddr:$addr, GR16:$rs),
+                           "C\t$rs,@$addr", []>;
+def Cmx : Format1_IdxStore<0b1000, 0, (outs),
+                           (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
+                           "C\t$rs,@${offset}(${ri})", []>;
+def Cmpi : Format1_AutoIncStore<0b1000, 0, (outs), (ins GR16:$rd, GR16:$rs),
+                                "C\t$rs,*${rd}+", []>;
+
+def CBim : Format1_IndLoad<0b1000, 1, (outs), (ins GR16:$rd, GR16:$rs),
+                           "CB\t*$rs,$rd", []>;
+def CBam : Format1_SymLoad<0b1000, 1, (outs), (ins GR16:$rd, symaddr:$addr),
+                           "CB\t@$addr,$rd", []>;
+def CBxm : Format1_IdxLoad<0b1000, 1, (outs),
+                           (ins GR16:$rd, i16imm:$offset, IdxRegs:$ri),
+                           "CB\t@${offset}(${ri}),$rd", []>;
+def CBpim : Format1_AutoIncLoad<0b1000, 1, (outs), (ins GR16:$rd, GR16:$rs),
+                                "CB\t*${rs}+,$rd", []>;
+def CBmi : Format1_IndStore<0b1000, 1, (outs), (ins GR16:$rd, GR16:$rs),
+                            "CB\t$rs,*$rd", []>;
+def CBma : Format1_SymStore<0b1000, 1, (outs), (ins symaddr:$addr, GR16:$rs),
+                            "CB\t$rs,@$addr", []>;
+def CBmx : Format1_IdxStore<0b1000, 1, (outs),
+                            (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
+                            "CB\t$rs,@${offset}(${ri})", []>;
+def CBmpi : Format1_AutoIncStore<0b1000, 1, (outs), (ins GR16:$rd, GR16:$rs),
+                                 "CB\t$rs,*${rd}+", []>;
 
 // CI - Compare Immediate (subop=8)
 def CI : Format8_Cmp<0b1000, (outs), (ins GR16:$rs, i16imm:$imm),
@@ -1297,6 +1529,23 @@ let Uses = [R0], Defs = [R0, R1] in
 def MPYrr : Format2_Reg_R0<0b001110, (outs), (ins GR16:$rs),
                            "MPY\t$rs,R0",
                            []>;
+let Uses = [R0], Defs = [R0, R1] in
+def MPYim : Format2_Ind_R0<0b001110, (outs), (ins GR16:$rs),
+                           "MPY\t*$rs,R0",
+                           []>;
+let Uses = [R0], Defs = [R0, R1] in
+def MPYam : Format2_Sym_R0<0b001110, (outs), (ins symaddr:$addr),
+                           "MPY\t@$addr,R0",
+                           []>;
+let Uses = [R0], Defs = [R0, R1] in
+def MPYxm : Format2_Idx_R0<0b001110, (outs),
+                           (ins i16imm:$offset, IdxRegs:$ri),
+                           "MPY\t@${offset}(${ri}),R0",
+                           []>;
+let Uses = [R0], Defs = [R0, R1] in
+def MPYpim : Format2_AutoInc_R0<0b001110, (outs), (ins GR16:$rs),
+                                "MPY\t*${rs}+,R0",
+                                []>;
 
 // DIV - Divide (unsigned 32/16 -> 16q, 16r)
 // Dividend in Rd:Rd+1 (32-bit input), divisor in Rs
@@ -1307,6 +1556,23 @@ let Uses = [R0, R1], Defs = [R0, R1] in
 def DIVrr : Format2_Reg_R0<0b001111, (outs), (ins GR16:$rs),
                            "DIV\t$rs,R0",
                            []>;
+let Uses = [R0, R1], Defs = [R0, R1] in
+def DIVim : Format2_Ind_R0<0b001111, (outs), (ins GR16:$rs),
+                           "DIV\t*$rs,R0",
+                           []>;
+let Uses = [R0, R1], Defs = [R0, R1] in
+def DIVam : Format2_Sym_R0<0b001111, (outs), (ins symaddr:$addr),
+                           "DIV\t@$addr,R0",
+                           []>;
+let Uses = [R0, R1], Defs = [R0, R1] in
+def DIVxm : Format2_Idx_R0<0b001111, (outs),
+                           (ins i16imm:$offset, IdxRegs:$ri),
+                           "DIV\t@${offset}(${ri}),R0",
+                           []>;
+let Uses = [R0, R1], Defs = [R0, R1] in
+def DIVpim : Format2_AutoInc_R0<0b001111, (outs), (ins GR16:$rs),
+                                "DIV\t*${rs}+,R0",
+                                []>;
 
 //===----------------------------------------------------------------------===//
 // XOP (Extended Operation)

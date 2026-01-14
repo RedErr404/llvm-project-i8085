@@ -219,6 +219,128 @@ class Format2_Reg<bits<6> opcode, dag outs, dag ins, string asmstr,
   let Inst{3-0} = rs;
 }
 
+class Format2_Ind<bits<6> opcode, dag outs, dag ins, string asmstr,
+                  list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> rd;   // Destination register
+  bits<4> rs;   // Source register (contains address)
+
+  bits<16> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = rd;
+  let Inst{5-4} = 0b01;       // Ts = register indirect
+  let Inst{3-0} = rs;
+}
+
+class Format2_AutoInc<bits<6> opcode, dag outs, dag ins, string asmstr,
+                      list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> rd;   // Destination register
+  bits<4> rs;   // Source register (contains address)
+
+  bits<16> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = rd;
+  let Inst{5-4} = 0b11;       // Ts = auto-increment
+  let Inst{3-0} = rs;
+}
+
+class Format2_Sym<bits<6> opcode, dag outs, dag ins, string asmstr,
+                  list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> rd;    // Destination register
+  bits<16> addr; // Symbolic address
+
+  bits<32> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = rd;
+  let Inst{5-4} = 0b10;       // Ts = symbolic/indexed
+  let Inst{3-0} = 0b0000;     // S = 0 (symbolic)
+  let Inst{31-16} = addr;
+
+  let Size = 4;
+}
+
+class Format2_Idx<bits<6> opcode, dag outs, dag ins, string asmstr,
+                  list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> rd;     // Destination register
+  bits<4> ri;     // Index register
+  bits<16> offset;// Offset
+
+  bits<32> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = rd;
+  let Inst{5-4} = 0b10;       // Ts = symbolic/indexed
+  let Inst{3-0} = ri;         // S = index register
+  let Inst{31-16} = offset;
+
+  let Size = 4;
+}
+
+class Format2_Ind_R0<bits<6> opcode, dag outs, dag ins, string asmstr,
+                     list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> rs;   // Source register (contains address)
+
+  bits<16> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = 0b0000;     // rd = R0 (hardcoded)
+  let Inst{5-4} = 0b01;       // Ts = register indirect
+  let Inst{3-0} = rs;
+}
+
+class Format2_AutoInc_R0<bits<6> opcode, dag outs, dag ins, string asmstr,
+                         list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> rs;   // Source register (contains address)
+
+  bits<16> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = 0b0000;     // rd = R0 (hardcoded)
+  let Inst{5-4} = 0b11;       // Ts = auto-increment
+  let Inst{3-0} = rs;
+}
+
+class Format2_Sym_R0<bits<6> opcode, dag outs, dag ins, string asmstr,
+                     list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<16> addr; // Symbolic address
+
+  bits<32> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = 0b0000;     // rd = R0 (hardcoded)
+  let Inst{5-4} = 0b10;       // Ts = symbolic/indexed
+  let Inst{3-0} = 0b0000;     // S = 0 (symbolic)
+  let Inst{31-16} = addr;
+
+  let Size = 4;
+}
+
+class Format2_Idx_R0<bits<6> opcode, dag outs, dag ins, string asmstr,
+                     list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  bits<4> ri;      // Index register
+  bits<16> offset; // Offset
+
+  bits<32> Inst;
+
+  let Inst{15-10} = opcode;
+  let Inst{9-6} = 0b0000;     // rd = R0 (hardcoded)
+  let Inst{5-4} = 0b10;       // Ts = symbolic/indexed
+  let Inst{3-0} = ri;         // S = index register
+  let Inst{31-16} = offset;
+
+  let Size = 4;
+}
+
 // Format2_Reg variant for MPY/DIV with implicit R0 destination
 // These instructions use R0:R1 as destination (hardcoded)
 class Format2_Reg_R0<bits<6> opcode, dag outs, dag ins, string asmstr,

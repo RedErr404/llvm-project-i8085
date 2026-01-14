@@ -334,36 +334,144 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
 
     switch (Op6) {
     case 0x08: { // COC
-      if (Ts != 0)
-        return MCDisassembler::Fail;
-      MI.setOpcode(TMS9900::COCrr);
-      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      return MCDisassembler::Success;
+      if (Ts == 0) {
+        MI.setOpcode(TMS9900::COCrr);
+        if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 1) {
+        MI.setOpcode(TMS9900::COCim);
+        if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 3) {
+        MI.setOpcode(TMS9900::COCpim);
+        if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 2) {
+        if (Bytes.size() < 4) return MCDisassembler::Fail;
+        uint16_t Extra = support::endian::read16be(Bytes.data() + 2);
+        Size = 4;
+        if (S == 0) {
+          MI.setOpcode(TMS9900::COCam);
+          if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+          MI.addOperand(MCOperand::createImm(Extra));
+        } else {
+          MI.setOpcode(TMS9900::COCxm);
+          if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+          MI.addOperand(MCOperand::createImm(Extra));
+          if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+        }
+        return MCDisassembler::Success;
+      }
+      return MCDisassembler::Fail;
     }
     case 0x09: { // CZC
-      if (Ts != 0)
-        return MCDisassembler::Fail;
-      MI.setOpcode(TMS9900::CZCrr);
-      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      return MCDisassembler::Success;
+      if (Ts == 0) {
+        MI.setOpcode(TMS9900::CZCrr);
+        if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 1) {
+        MI.setOpcode(TMS9900::CZCim);
+        if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 3) {
+        MI.setOpcode(TMS9900::CZCpim);
+        if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 2) {
+        if (Bytes.size() < 4) return MCDisassembler::Fail;
+        uint16_t Extra = support::endian::read16be(Bytes.data() + 2);
+        Size = 4;
+        if (S == 0) {
+          MI.setOpcode(TMS9900::CZCam);
+          if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+          MI.addOperand(MCOperand::createImm(Extra));
+        } else {
+          MI.setOpcode(TMS9900::CZCxm);
+          if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+          MI.addOperand(MCOperand::createImm(Extra));
+          if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+        }
+        return MCDisassembler::Success;
+      }
+      return MCDisassembler::Fail;
     }
     case 0x0A: { // XOR
-      if (Ts != 0)
-        return MCDisassembler::Fail;
-      MI.setOpcode(TMS9900::XORrr);
-      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      return MCDisassembler::Success;
+      if (Ts == 0) {
+        MI.setOpcode(TMS9900::XORrr);
+        if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 1) {
+        MI.setOpcode(TMS9900::XORim);
+        if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 3) {
+        MI.setOpcode(TMS9900::XORpim);
+        if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 2) {
+        if (Bytes.size() < 4) return MCDisassembler::Fail;
+        uint16_t Extra = support::endian::read16be(Bytes.data() + 2);
+        Size = 4;
+        if (S == 0) {
+          MI.setOpcode(TMS9900::XORam);
+          if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+          MI.addOperand(MCOperand::createImm(Extra));
+        } else {
+          MI.setOpcode(TMS9900::XORxm);
+          if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+          MI.addOperand(MCOperand::createImm(Extra));
+          if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+        }
+        return MCDisassembler::Success;
+      }
+      return MCDisassembler::Fail;
     }
     case 0x0B: { // XOP
       unsigned Opcode = 0;
@@ -398,20 +506,80 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
       return MCDisassembler::Success;
     }
     case 0x0E: { // MPY (hardcoded Rd=R0)
-      if (Ts != 0 || D != 0)
+      if (D != 0)
         return MCDisassembler::Fail;
-      MI.setOpcode(TMS9900::MPYrr);
-      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      return MCDisassembler::Success;
+      if (Ts == 0) {
+        MI.setOpcode(TMS9900::MPYrr);
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 1) {
+        MI.setOpcode(TMS9900::MPYim);
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 3) {
+        MI.setOpcode(TMS9900::MPYpim);
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 2) {
+        if (Bytes.size() < 4) return MCDisassembler::Fail;
+        uint16_t Extra = support::endian::read16be(Bytes.data() + 2);
+        Size = 4;
+        if (S == 0) {
+          MI.setOpcode(TMS9900::MPYam);
+          MI.addOperand(MCOperand::createImm(Extra));
+        } else {
+          MI.setOpcode(TMS9900::MPYxm);
+          MI.addOperand(MCOperand::createImm(Extra));
+          if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+        }
+        return MCDisassembler::Success;
+      }
+      return MCDisassembler::Fail;
     }
     case 0x0F: { // DIV (hardcoded Rd=R0)
-      if (Ts != 0 || D != 0)
+      if (D != 0)
         return MCDisassembler::Fail;
-      MI.setOpcode(TMS9900::DIVrr);
-      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      return MCDisassembler::Success;
+      if (Ts == 0) {
+        MI.setOpcode(TMS9900::DIVrr);
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 1) {
+        MI.setOpcode(TMS9900::DIVim);
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 3) {
+        MI.setOpcode(TMS9900::DIVpim);
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        return MCDisassembler::Success;
+      }
+      if (Ts == 2) {
+        if (Bytes.size() < 4) return MCDisassembler::Fail;
+        uint16_t Extra = support::endian::read16be(Bytes.data() + 2);
+        Size = 4;
+        if (S == 0) {
+          MI.setOpcode(TMS9900::DIVam);
+          MI.addOperand(MCOperand::createImm(Extra));
+        } else {
+          MI.setOpcode(TMS9900::DIVxm);
+          MI.addOperand(MCOperand::createImm(Extra));
+          if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+        }
+        return MCDisassembler::Success;
+      }
+      return MCDisassembler::Fail;
     }
     case 0x0C: // LDCR
     case 0x0D: { // STCR
@@ -739,18 +907,17 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
     if (Ts == 0 && Td == 0) {
       unsigned Opcode = 0;
       bool needsTiedOperand = false;  // For A/S/SOC/SZC which have $rd = $rs1
-      bool isCompare = false;  // C/CB have no output
       switch (Op4) {
       case 0x4: Opcode = TMS9900::SZCrr; needsTiedOperand = true; break;
       case 0x6: Opcode = TMS9900::Srr; needsTiedOperand = true; break;
-      case 0x8: Opcode = TMS9900::Crr; isCompare = true; break;
+      case 0x8: Opcode = TMS9900::Crr; break;
       case 0xA: Opcode = TMS9900::Arr; needsTiedOperand = true; break;
       case 0xC: Opcode = TMS9900::MOVrr; break;
       case 0xE: Opcode = TMS9900::SOCrr; needsTiedOperand = true; break;
       // Byte operations
       case 0x5: Opcode = TMS9900::SZCBrr; needsTiedOperand = true; break;
       case 0x7: Opcode = TMS9900::SBrr; needsTiedOperand = true; break;
-      case 0x9: Opcode = TMS9900::CBrr; isCompare = true; break;
+      case 0x9: Opcode = TMS9900::CBrr; break;
       case 0xB: Opcode = TMS9900::ABrr; needsTiedOperand = true; break;
       case 0xD: Opcode = TMS9900::MOVBrr; break;
       case 0xF: Opcode = TMS9900::SOCBrr; needsTiedOperand = true; break;
@@ -772,166 +939,129 @@ DecodeStatus TMS9900Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
       return MCDisassembler::Success;
     }
 
-    // Handle register-to-indirect (Ts=0, Td=1) - e.g., MOV R11,*R10
-    if (Ts == 0 && Td == 1) {
-      unsigned Opcode = 0;
+    auto getFormat1LoadOpcode = [&](unsigned Op4, unsigned Mode) -> unsigned {
       switch (Op4) {
-      case 0xC: Opcode = TMS9900::MOVmi; break;
-      case 0xD: Opcode = TMS9900::MOVBmi; break;
+      case 0x4: return Mode == 0 ? TMS9900::SZCim : Mode == 1 ? TMS9900::SZCam
+                              : Mode == 2 ? TMS9900::SZCxm : TMS9900::SZCpim;
+      case 0x5: return Mode == 0 ? TMS9900::SZCBim : Mode == 1 ? TMS9900::SZCBam
+                              : Mode == 2 ? TMS9900::SZCBxm : TMS9900::SZCBpim;
+      case 0x6: return Mode == 0 ? TMS9900::Sim : Mode == 1 ? TMS9900::Sam
+                              : Mode == 2 ? TMS9900::Sxm : TMS9900::Spim;
+      case 0x7: return Mode == 0 ? TMS9900::SBim : Mode == 1 ? TMS9900::SBam
+                              : Mode == 2 ? TMS9900::SBxm : TMS9900::SBpim;
+      case 0x8: return Mode == 0 ? TMS9900::Cim : Mode == 1 ? TMS9900::Cam
+                              : Mode == 2 ? TMS9900::Cxm : TMS9900::Cpim;
+      case 0x9: return Mode == 0 ? TMS9900::CBim : Mode == 1 ? TMS9900::CBam
+                              : Mode == 2 ? TMS9900::CBxm : TMS9900::CBpim;
+      case 0xA: return Mode == 0 ? TMS9900::Aim : Mode == 1 ? TMS9900::Aam
+                              : Mode == 2 ? TMS9900::Axm : TMS9900::Apim;
+      case 0xB: return Mode == 0 ? TMS9900::ABim : Mode == 1 ? TMS9900::ABam
+                              : Mode == 2 ? TMS9900::ABxm : TMS9900::ABpim;
+      case 0xC: return Mode == 0 ? TMS9900::MOVim : Mode == 1 ? TMS9900::MOVam
+                              : Mode == 2 ? TMS9900::MOVxm : TMS9900::MOVpim;
+      case 0xD: return Mode == 0 ? TMS9900::MOVBim : Mode == 1 ? TMS9900::MOVBam
+                              : Mode == 2 ? TMS9900::MOVBxm : TMS9900::MOVBpim;
+      case 0xE: return Mode == 0 ? TMS9900::SOCim : Mode == 1 ? TMS9900::SOCam
+                              : Mode == 2 ? TMS9900::SOCxm : TMS9900::SOCpim;
+      case 0xF: return Mode == 0 ? TMS9900::SOCBim : Mode == 1 ? TMS9900::SOCBam
+                              : Mode == 2 ? TMS9900::SOCBxm : TMS9900::SOCBpim;
       default:
-        // For other ops, just show as register-to-register for now
-        Opcode = TMS9900::MOVrr;
-        break;
+        return 0;
       }
+    };
+
+    auto getFormat1StoreOpcode = [&](unsigned Op4, unsigned Mode) -> unsigned {
+      switch (Op4) {
+      case 0x4: return Mode == 0 ? TMS9900::SZCmi : Mode == 1 ? TMS9900::SZCma
+                              : Mode == 2 ? TMS9900::SZCmx : TMS9900::SZCmpi;
+      case 0x5: return Mode == 0 ? TMS9900::SZCBmi : Mode == 1 ? TMS9900::SZCBma
+                              : Mode == 2 ? TMS9900::SZCBmx : TMS9900::SZCBmpi;
+      case 0x6: return Mode == 0 ? TMS9900::Smi : Mode == 1 ? TMS9900::Sma
+                              : Mode == 2 ? TMS9900::Smx : TMS9900::Smpi;
+      case 0x7: return Mode == 0 ? TMS9900::SBmi : Mode == 1 ? TMS9900::SBma
+                              : Mode == 2 ? TMS9900::SBmx : TMS9900::SBmpi;
+      case 0x8: return Mode == 0 ? TMS9900::Cmi : Mode == 1 ? TMS9900::Cma
+                              : Mode == 2 ? TMS9900::Cmx : TMS9900::Cmpi;
+      case 0x9: return Mode == 0 ? TMS9900::CBmi : Mode == 1 ? TMS9900::CBma
+                              : Mode == 2 ? TMS9900::CBmx : TMS9900::CBmpi;
+      case 0xA: return Mode == 0 ? TMS9900::Ami : Mode == 1 ? TMS9900::Ama
+                              : Mode == 2 ? TMS9900::Amx : TMS9900::Ampi;
+      case 0xB: return Mode == 0 ? TMS9900::ABmi : Mode == 1 ? TMS9900::ABma
+                              : Mode == 2 ? TMS9900::ABmx : TMS9900::ABmpi;
+      case 0xC: return Mode == 0 ? TMS9900::MOVmi : Mode == 1 ? TMS9900::MOVma
+                              : Mode == 2 ? TMS9900::MOVmx : TMS9900::MOVmpi;
+      case 0xD: return Mode == 0 ? TMS9900::MOVBmi : Mode == 1 ? TMS9900::MOVBma
+                              : Mode == 2 ? TMS9900::MOVBmx : TMS9900::MOVBmpi;
+      case 0xE: return Mode == 0 ? TMS9900::SOCmi : Mode == 1 ? TMS9900::SOCma
+                              : Mode == 2 ? TMS9900::SOCmx : TMS9900::SOCmpi;
+      case 0xF: return Mode == 0 ? TMS9900::SOCBmi : Mode == 1 ? TMS9900::SOCBma
+                              : Mode == 2 ? TMS9900::SOCBmx : TMS9900::SOCBmpi;
+      default:
+        return 0;
+      }
+    };
+
+    // Source memory, dest register
+    if (Td == 0 && Ts != 0) {
+      unsigned Mode = Ts == 1 ? 0 : Ts == 2 ? (S == 0 ? 1 : 2) : 3;
+      unsigned Opcode = getFormat1LoadOpcode(Op4, Mode);
+      if (Opcode == 0)
+        return MCDisassembler::Fail;
       MI.setOpcode(Opcode);
-      // For MOVmi: (outs), (ins ptr_reg, src_reg)
-      // D is the pointer register, S is the source register
       if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
         return MCDisassembler::Fail;
-      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+      if (Ts == 1 || Ts == 3) {
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        if (Opcode == TMS9900::MOVpim || Opcode == TMS9900::MOVBpim) {
+          if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+        }
+      } else if (Ts == 2 && S == 0) {
+        uint16_t Addr = support::endian::read16be(Bytes.data() + 2);
+        MI.addOperand(MCOperand::createImm(Addr));
+      } else if (Ts == 2) {
+        uint16_t Offset = support::endian::read16be(Bytes.data() + 2);
+        MI.addOperand(MCOperand::createImm(Offset));
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+      } else {
         return MCDisassembler::Fail;
+      }
       return MCDisassembler::Success;
     }
 
-    // Handle indirect-to-register (Ts=1, Td=0) - e.g., MOV *R10,R11
-    if (Ts == 1 && Td == 0) {
-      unsigned Opcode = 0;
-      switch (Op4) {
-      case 0xC: Opcode = TMS9900::MOVim; break;
-      case 0xD: Opcode = TMS9900::MOVBim; break;
-      default:
-        Opcode = TMS9900::MOVrr;
-        break;
-      }
+    // Dest memory, source register
+    if (Ts == 0 && Td != 0) {
+      unsigned Mode = Td == 1 ? 0 : Td == 2 ? (D == 0 ? 1 : 2) : 3;
+      unsigned Opcode = getFormat1StoreOpcode(Op4, Mode);
+      if (Opcode == 0)
+        return MCDisassembler::Fail;
       MI.setOpcode(Opcode);
-      // For MOVim: (outs dest_reg), (ins ptr_reg)
-      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      return MCDisassembler::Success;
-    }
-
-    // Handle auto-increment load (Ts=3, Td=0) - e.g., MOV *R10+,R11
-    if (Ts == 3 && Td == 0) {
-      unsigned Opcode = 0;
-      switch (Op4) {
-      case 0xC: Opcode = TMS9900::MOVpim; break;
-      case 0xD: Opcode = TMS9900::MOVBpim; break;
-      default:
-        Opcode = TMS9900::MOVrr;
-        break;
-      }
-      MI.setOpcode(Opcode);
-      // MOVpim has (outs $rd, $rs_wb), (ins $rs) - need 3 operands
-      // D is destination, S is source pointer (added twice for writeback)
-      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      return MCDisassembler::Success;
-    }
-
-    // Handle auto-increment store (Ts=0, Td=3) - e.g., MOV R9,*R10+
-    if (Ts == 0 && Td == 3) {
-      unsigned Opcode = 0;
-      switch (Op4) {
-      case 0xC: Opcode = TMS9900::MOVmpi; break;
-      case 0xD: Opcode = TMS9900::MOVBmpi; break;
-      default:
+      if (Td == 1 || Td == 3) {
+        if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        if (Opcode == TMS9900::MOVmpi || Opcode == TMS9900::MOVBmpi) {
+          if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+            return MCDisassembler::Fail;
+        }
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+      } else if (Td == 2 && D == 0) {
+        uint16_t Addr = support::endian::read16be(Bytes.data() + 2);
+        MI.addOperand(MCOperand::createImm(Addr));
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+      } else if (Td == 2) {
+        uint16_t Offset = support::endian::read16be(Bytes.data() + 2);
+        MI.addOperand(MCOperand::createImm(Offset));
+        if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+        if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
+          return MCDisassembler::Fail;
+      } else {
         return MCDisassembler::Fail;
       }
-      MI.setOpcode(Opcode);
-      // MOVmpi: (outs $rd_wb), (ins $rd, $rs)
-      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      return MCDisassembler::Success;
-    }
-
-    // Handle symbolic source addressing (Ts=2, S=0, Td=0) - e.g., MOV @addr,Rd
-    if (Ts == 2 && S == 0 && Td == 0) {
-      uint16_t Addr = support::endian::read16be(Bytes.data() + 2);
-      unsigned Opcode = 0;
-      switch (Op4) {
-      case 0xC: Opcode = TMS9900::MOVam; break;
-      case 0xD: Opcode = TMS9900::MOVBam; break;
-      default:
-        // For other ops, use generic format
-        Opcode = TMS9900::MOVam;
-        break;
-      }
-      MI.setOpcode(Opcode);
-      // MOVam: (outs $rd), (ins $addr)
-      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      MI.addOperand(MCOperand::createImm(Addr));
-      return MCDisassembler::Success;
-    }
-
-    // Handle symbolic dest addressing (Td=2, D=0, Ts=0) - e.g., MOV Rs,@addr
-    if (Td == 2 && D == 0 && Ts == 0) {
-      uint16_t Addr = support::endian::read16be(Bytes.data() + 2);
-      unsigned Opcode = 0;
-      switch (Op4) {
-      case 0xC: Opcode = TMS9900::MOVma; break;
-      case 0xD: Opcode = TMS9900::MOVBma; break;
-      default:
-        Opcode = TMS9900::MOVma;
-        break;
-      }
-      MI.setOpcode(Opcode);
-      // MOVma: (outs), (ins $addr, $rs)
-      MI.addOperand(MCOperand::createImm(Addr));
-      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      return MCDisassembler::Success;
-    }
-
-    // Handle indexed source addressing (Ts=2, S!=0, Td=0) - e.g., MOV @offset(Rs),Rd
-    if (Ts == 2 && S != 0 && Td == 0) {
-      uint16_t Offset = support::endian::read16be(Bytes.data() + 2);
-      unsigned Opcode = 0;
-      switch (Op4) {
-      case 0xC: Opcode = TMS9900::MOVxm; break;
-      case 0xD: Opcode = TMS9900::MOVBxm; break;
-      default:
-        Opcode = TMS9900::MOVxm;
-        break;
-      }
-      MI.setOpcode(Opcode);
-      // MOVxm: (outs $rd), (ins $offset, $ri)
-      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      MI.addOperand(MCOperand::createImm(Offset));
-      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      return MCDisassembler::Success;
-    }
-
-    // Handle indexed dest addressing (Td=2, D!=0, Ts=0) - e.g., MOV Rs,@offset(Rd)
-    if (Td == 2 && D != 0 && Ts == 0) {
-      uint16_t Offset = support::endian::read16be(Bytes.data() + 2);
-      unsigned Opcode = 0;
-      switch (Op4) {
-      case 0xC: Opcode = TMS9900::MOVmx; break;
-      case 0xD: Opcode = TMS9900::MOVBmx; break;
-      default:
-        Opcode = TMS9900::MOVmx;
-        break;
-      }
-      MI.setOpcode(Opcode);
-      // MOVmx: (outs), (ins $offset, $ri, $rs)
-      MI.addOperand(MCOperand::createImm(Offset));
-      if (DecodeGR16RegisterClass(MI, D, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
-      if (DecodeGR16RegisterClass(MI, S, Address, this) != MCDisassembler::Success)
-        return MCDisassembler::Fail;
       return MCDisassembler::Success;
     }
 
