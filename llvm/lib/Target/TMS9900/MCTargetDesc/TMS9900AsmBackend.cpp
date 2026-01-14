@@ -121,9 +121,9 @@ public:
                                     const MCRelaxableFragment *DF,
                                     const MCAsmLayout &Layout,
                                     const bool WasForced) const override {
-    // If not resolved, assume it might need relaxation
-    if (!Resolved)
-      return true;
+    // Only relax when the offset is known to be out of range.
+    if (!Resolved && !WasForced)
+      return false;
 
     return fixupNeedsRelaxation(Fixup, Value, DF, Layout);
   }
