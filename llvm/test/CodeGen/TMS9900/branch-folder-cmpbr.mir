@@ -27,5 +27,5 @@ body: |
 
 # CHECK-LABEL: name: cmpbr_invert
 # CHECK: bb.0:
-# CHECK: CMPBRrr $r{{[0-9]+}}, $r{{[0-9]+}}, 17, %bb.1
-# CHECK: JMP %bb.2
+# NOTE: branch-folder may invert CMPBRrr to remove the following JMP.
+# CHECK: CMPBRrr $r{{[0-9]+}}, $r{{[0-9]+}}, 22, %bb.2
