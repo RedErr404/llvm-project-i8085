@@ -36,7 +36,7 @@ def TMS9900Model : SchedMachineModel {
 
   // HighLatency: threshold for "high latency" instructions
   // DIV can take up to 124 cycles
-  let HighLatency = 52;
+  let HighLatency = 100;
 
   // MispredictPenalty: TMS9900 has no branch prediction
   let MispredictPenalty = 0;
@@ -63,11 +63,18 @@ def TMS9900Model : SchedMachineModel {
 // SchedWrite Classes - Define write latencies
 //===----------------------------------------------------------------------===//
 
+def WriteFast8   : SchedWrite;
 def WriteFast    : SchedWrite;
+def WriteImm12   : SchedWrite;
 def WriteALU     : SchedWrite;
 def WriteMem     : SchedWrite;
-def WriteControl : SchedWrite;
 def WriteSlow    : SchedWrite;
+def WriteCRU     : SchedWrite;
+def WriteDiv     : SchedWrite;
+def WriteControl : SchedWrite;
+def WriteControl16 : SchedWrite;
+def WriteControl26 : SchedWrite;
+def WriteControl36 : SchedWrite;
 def WriteBranch  : SchedWrite;
 def WriteCall    : SchedWrite;
 
@@ -76,25 +83,42 @@ def WriteCall    : SchedWrite;
 //===----------------------------------------------------------------------===//
 
 let SchedModel = TMS9900Model in {
-  // Fast instructions: 8-10 cycles
-  // B, CLR, DEC, DECT, INC, INCT, INV, SETO, SWPB, STST, STWP
+  // Fast instructions: 8 cycles
+  // STST, STWP, X (plus executed instruction)
+  def : WriteRes<WriteFast8, [TMS9900Unit]> { let Latency = 8; }
+
+  // Fast instructions: 10 cycles
+  // CLR, DEC, DECT, INC, INCT, INV, SETO, SWPB, LWPI
   def : WriteRes<WriteFast, [TMS9900Unit]> { let Latency = 10; }
+
+  // Immediate/control-lite instructions: 12 cycles
+  // LI, NEG, SBO, SBZ, TB, IDLE, CKOF, CKON, RSET, LREX
+  def : WriteRes<WriteImm12, [TMS9900Unit]> { let Latency = 12; }
 
   // Standard ALU: 12-14 cycles
   // MOV (reg-reg), A, S, C, SOC, SZC, XOR, AI, ANDI, CI, LI, ORI, NEG, ABS, COC, CZC
   def : WriteRes<WriteALU, [TMS9900Unit]> { let Latency = 14; }
 
   // Memory operations: 14 base + addressing mode overhead
-  // Average case with indirect addressing adds 4 cycles
+  // Use register-indirect (+4) as a baseline, zero wait states assumed.
   def : WriteRes<WriteMem, [TMS9900Unit]> { let Latency = 18; }
 
-  // Control instructions: 16-26 cycles
-  // LIMI (16), BLWP (26), XOP (36), RTWP (14)
+  // Control instructions: 16-36 cycles
+  // LIMI (16), BLWP (26), XOP (36)
   def : WriteRes<WriteControl, [TMS9900Unit]> { let Latency = 20; }
+  def : WriteRes<WriteControl16, [TMS9900Unit]> { let Latency = 16; }
+  def : WriteRes<WriteControl26, [TMS9900Unit]> { let Latency = 26; }
+  def : WriteRes<WriteControl36, [TMS9900Unit]> { let Latency = 36; }
 
   // Slow instructions
-  // MPY (52), DIV (92-124), shifts (12+2*count), LDCR/STCR (variable)
+  // MPY (52), shifts (12+2*count), LDCR (20+2*count)
   def : WriteRes<WriteSlow, [TMS9900Unit]> { let Latency = 52; }
+
+  // CRU store (STCR) can take up to 60 cycles
+  def : WriteRes<WriteCRU, [TMS9900Unit]> { let Latency = 60; }
+
+  // DIV (92-124), use a midpoint approximation
+  def : WriteRes<WriteDiv, [TMS9900Unit]> { let Latency = 100; }
 
   // Branch: 8 (not taken) or 10 (taken)
   def : WriteRes<WriteBranch, [TMS9900Unit]> { let Latency = 10; }
@@ -114,10 +138,10 @@ let SchedModel = TMS9900Model in {
 //===----------------------------------------------------------------------===//
 
 // Note: To use this scheduling model, instructions should be tagged with
-// their appropriate Sched list. For example:
+// their appropriate SchedRW list. For example:
 //
 //   def MOVrr : ... {
-//     let Sched = [WriteALU];
+//     let SchedRW = [WriteALU];
 //   }
 //
 // Or use InstRW to map entire instruction classes:

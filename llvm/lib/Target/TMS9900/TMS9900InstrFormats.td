@@ -81,6 +81,7 @@ class TMS9900Inst<dag outs, dag ins, string asmstr, list<dag> pattern>
   dag InOperandList = ins;
   let AsmString = asmstr;
   let Pattern = pattern;
+  let SchedRW = [WriteALU];
 
   // Size in bytes (most instructions are 2 bytes, some have additional words)
   bits<8> Size = 2;
@@ -96,6 +97,7 @@ class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
   let isPseudo = 1;
   let isCodeGenOnly = 1;
+  let SchedRW = [];
 }
 
 //===----------------------------------------------------------------------===//
@@ -222,6 +224,7 @@ class Format2_Reg<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format2_Ind<bits<6> opcode, dag outs, dag ins, string asmstr,
                   list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> rd;   // Destination register
   bits<4> rs;   // Source register (contains address)
 
@@ -236,6 +239,7 @@ class Format2_Ind<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format2_AutoInc<bits<6> opcode, dag outs, dag ins, string asmstr,
                       list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> rd;   // Destination register
   bits<4> rs;   // Source register (contains address)
 
@@ -250,6 +254,7 @@ class Format2_AutoInc<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format2_Sym<bits<6> opcode, dag outs, dag ins, string asmstr,
                   list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> rd;    // Destination register
   bits<16> addr; // Symbolic address
 
@@ -267,6 +272,7 @@ class Format2_Sym<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format2_Idx<bits<6> opcode, dag outs, dag ins, string asmstr,
                   list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> rd;     // Destination register
   bits<4> ri;     // Index register
   bits<16> offset;// Offset
@@ -285,6 +291,7 @@ class Format2_Idx<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format2_Ind_R0<bits<6> opcode, dag outs, dag ins, string asmstr,
                      list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> rs;   // Source register (contains address)
 
   bits<16> Inst;
@@ -298,6 +305,7 @@ class Format2_Ind_R0<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format2_AutoInc_R0<bits<6> opcode, dag outs, dag ins, string asmstr,
                          list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> rs;   // Source register (contains address)
 
   bits<16> Inst;
@@ -311,6 +319,7 @@ class Format2_AutoInc_R0<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format2_Sym_R0<bits<6> opcode, dag outs, dag ins, string asmstr,
                      list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<16> addr; // Symbolic address
 
   bits<32> Inst;
@@ -327,6 +336,7 @@ class Format2_Sym_R0<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format2_Idx_R0<bits<6> opcode, dag outs, dag ins, string asmstr,
                      list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> ri;      // Index register
   bits<16> offset; // Offset
 
@@ -483,6 +493,7 @@ class Format3_AutoInc<bits<10> opcode, dag outs, dag ins, string asmstr,
 class Format1_SymLoad<bits<4> opcode, bit byteflag, dag outs, dag ins,
                       string asmstr, list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> rd;     // Destination register
   bits<16> addr;  // Memory address
 
@@ -507,6 +518,7 @@ class Format1_SymLoad<bits<4> opcode, bit byteflag, dag outs, dag ins,
 class Format1_SymStore<bits<4> opcode, bit byteflag, dag outs, dag ins,
                        string asmstr, list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<16> addr;  // Memory address
   bits<4> rs;     // Source register
 
@@ -531,6 +543,7 @@ class Format1_SymStore<bits<4> opcode, bit byteflag, dag outs, dag ins,
 class Format1_IndLoad<bits<4> opcode, bit byteflag, dag outs, dag ins,
                       string asmstr, list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> rd;   // Destination register
   bits<4> rs;   // Source register (contains address)
 
@@ -550,6 +563,7 @@ class Format1_IndLoad<bits<4> opcode, bit byteflag, dag outs, dag ins,
 class Format1_IndStore<bits<4> opcode, bit byteflag, dag outs, dag ins,
                        string asmstr, list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> rd;   // Destination register (contains address)
   bits<4> rs;   // Source register
 
@@ -569,6 +583,7 @@ class Format1_IndStore<bits<4> opcode, bit byteflag, dag outs, dag ins,
 class Format1_IdxLoad<bits<4> opcode, bit byteflag, dag outs, dag ins,
                       string asmstr, list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> rd;     // Destination register
   bits<4> ri;     // Index register (1-15, not 0)
   bits<16> offset;// Offset
@@ -594,6 +609,7 @@ class Format1_IdxLoad<bits<4> opcode, bit byteflag, dag outs, dag ins,
 class Format1_IdxStore<bits<4> opcode, bit byteflag, dag outs, dag ins,
                        string asmstr, list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> ri;     // Index register (1-15, not 0)
   bits<16> offset;// Offset
   bits<4> rs;     // Source register
@@ -625,6 +641,7 @@ class Format1_IdxStore<bits<4> opcode, bit byteflag, dag outs, dag ins,
 class Format1_AutoIncLoad<bits<4> opcode, bit byteflag, dag outs, dag ins,
                           string asmstr, list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> rd;   // Destination register
   bits<4> rs;   // Source register (contains address, will be incremented)
 
@@ -645,6 +662,7 @@ class Format1_AutoIncLoad<bits<4> opcode, bit byteflag, dag outs, dag ins,
 class Format1_AutoIncStore<bits<4> opcode, bit byteflag, dag outs, dag ins,
                            string asmstr, list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<4> rd;   // Destination register (contains address, will be incremented)
   bits<4> rs;   // Source register
 
@@ -669,6 +687,7 @@ class Format1_AutoIncStore<bits<4> opcode, bit byteflag, dag outs, dag ins,
 class Format1_SymSym<bits<4> opcode, bit byteflag, dag outs, dag ins,
                      string asmstr, list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<16> src;
   bits<16> dst;
 
@@ -690,6 +709,7 @@ class Format1_SymSym<bits<4> opcode, bit byteflag, dag outs, dag ins,
 class Format1_SymIdx<bits<4> opcode, bit byteflag, dag outs, dag ins,
                      string asmstr, list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<16> src;
   bits<4> ri;
   bits<16> dst;
@@ -712,6 +732,7 @@ class Format1_SymIdx<bits<4> opcode, bit byteflag, dag outs, dag ins,
 class Format1_IdxSym<bits<4> opcode, bit byteflag, dag outs, dag ins,
                      string asmstr, list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<16> src;
   bits<4> ri;
   bits<16> dst;
@@ -734,6 +755,7 @@ class Format1_IdxSym<bits<4> opcode, bit byteflag, dag outs, dag ins,
 class Format1_IdxIdx<bits<4> opcode, bit byteflag, dag outs, dag ins,
                      string asmstr, list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
   bits<16> src;
   bits<4> src_ri;
   bits<16> dst;
@@ -761,6 +783,7 @@ class Format1_IdxIdx<bits<4> opcode, bit byteflag, dag outs, dag ins,
 class Format6<bits<8> opcode, dag outs, dag ins, string asmstr,
               list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteBranch];
   bits<8> disp;   // Signed displacement (word offset)
 
   bits<16> Inst;
@@ -780,6 +803,7 @@ class Format6<bits<8> opcode, dag outs, dag ins, string asmstr,
 class Format4<bits<6> opcode, dag outs, dag ins, string asmstr,
               list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteSlow];
   bits<4> cnt;   // Count field
   bits<6> src;   // Ts:2 + S:4
 
@@ -794,6 +818,7 @@ class Format4<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format4_Reg<bits<6> opcode, dag outs, dag ins, string asmstr,
                   list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteSlow];
   bits<4> cnt;
   bits<4> rs;
 
@@ -808,6 +833,7 @@ class Format4_Reg<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format4_Ind<bits<6> opcode, dag outs, dag ins, string asmstr,
                   list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteSlow];
   bits<4> cnt;
   bits<4> rs;
 
@@ -822,6 +848,7 @@ class Format4_Ind<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format4_AutoInc<bits<6> opcode, dag outs, dag ins, string asmstr,
                       list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteSlow];
   bits<4> cnt;
   bits<4> rs;
 
@@ -836,6 +863,7 @@ class Format4_AutoInc<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format4_Sym<bits<6> opcode, dag outs, dag ins, string asmstr,
                   list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteSlow];
   bits<4> cnt;
   bits<16> addr;
 
@@ -853,6 +881,7 @@ class Format4_Sym<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format4_Idx<bits<6> opcode, dag outs, dag ins, string asmstr,
                   list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteSlow];
   bits<4> cnt;
   bits<16> offset;
   bits<4> ri;
@@ -876,6 +905,7 @@ class Format4_Idx<bits<6> opcode, dag outs, dag ins, string asmstr,
 class FormatXOP_Reg<bits<6> opcode, dag outs, dag ins, string asmstr,
                     list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteControl36];
   bits<4> vec;
   bits<4> rs;
 
@@ -890,6 +920,7 @@ class FormatXOP_Reg<bits<6> opcode, dag outs, dag ins, string asmstr,
 class FormatXOP_Ind<bits<6> opcode, dag outs, dag ins, string asmstr,
                     list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteControl36];
   bits<4> vec;
   bits<4> rs;
 
@@ -904,6 +935,7 @@ class FormatXOP_Ind<bits<6> opcode, dag outs, dag ins, string asmstr,
 class FormatXOP_AutoInc<bits<6> opcode, dag outs, dag ins, string asmstr,
                         list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteControl36];
   bits<4> vec;
   bits<4> rs;
 
@@ -918,6 +950,7 @@ class FormatXOP_AutoInc<bits<6> opcode, dag outs, dag ins, string asmstr,
 class FormatXOP_Sym<bits<6> opcode, dag outs, dag ins, string asmstr,
                     list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteControl36];
   bits<4> vec;
   bits<16> addr;
 
@@ -935,6 +968,7 @@ class FormatXOP_Sym<bits<6> opcode, dag outs, dag ins, string asmstr,
 class FormatXOP_Idx<bits<6> opcode, dag outs, dag ins, string asmstr,
                     list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteControl36];
   bits<4> vec;
   bits<16> offset;
   bits<4> ri;
@@ -958,6 +992,7 @@ class FormatXOP_Idx<bits<6> opcode, dag outs, dag ins, string asmstr,
 class Format5<bits<8> opcode, dag outs, dag ins, string asmstr,
               list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteImm12];
   bits<8> disp;
   bits<16> Inst;
 
@@ -973,6 +1008,7 @@ class Format5<bits<8> opcode, dag outs, dag ins, string asmstr,
 class Format7<bits<8> opcode, dag outs, dag ins, string asmstr,
               list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteSlow];
   bits<4> count;  // Shift count (0 = use R0)
   bits<4> rw;     // Register to shift
 
@@ -989,6 +1025,7 @@ class Format7<bits<8> opcode, dag outs, dag ins, string asmstr,
 class Format7_TwoAddr<bits<8> opcode, dag outs, dag ins, string asmstr,
                       list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteSlow];
   bits<4> cnt;    // Shift count operand
   bits<4> rd;     // Register to shift (output, tied to input)
 
@@ -1004,6 +1041,7 @@ class Format7_TwoAddr<bits<8> opcode, dag outs, dag ins, string asmstr,
 class Format7_R0Count<bits<8> opcode, dag outs, dag ins, string asmstr,
                       list<dag> pattern>
     : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteSlow];
   bits<4> rd;     // Register to shift (output, tied to input)
 
   bits<16> Inst;

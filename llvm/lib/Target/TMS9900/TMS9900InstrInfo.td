@@ -540,10 +540,13 @@ defm CB : Format1MemMem<0b1000, 1, "CB">;
 let Defs = [ST] in
 def LI : Format8<0b0000, (outs GR16:$rd), (ins i16imm:$imm),
                  "LI\t$rd,$imm",
-                 [(set GR16:$rd, imm:$imm)]>;
+                 [(set GR16:$rd, imm:$imm)]> {
+  let SchedRW = [WriteImm12];
+}
 
 // CLR, SETO, SWPB all set status bits
 let Defs = [ST] in {
+let SchedRW = [WriteFast] in {
 // CLR - Clear (set to 0) - sets EQ=1
 def CLRr : Format3_Reg<0b0000010011, (outs GR16:$rs), (ins),
                        "CLR\t$rs",
@@ -638,6 +641,7 @@ def SWPB_pim : Format3_AutoInc<0b0000011011, (outs), (ins GR16:$rs),
                                []> {
   let mayLoad = 1;
   let mayStore = 1;
+}
 }
 } // Defs = [ST]
 
@@ -759,6 +763,7 @@ def SBmx : Format1_IdxStore<0b0110, 1, (outs),
 def SBmpi : Format1_AutoIncStore<0b0110, 1, (outs), (ins GR16:$rd, GR16:$rs),
                                  "SB\t$rs,*${rd}+", []>;
 
+let SchedRW = [WriteFast] in {
 // INC - Increment by 1
 def INCr : Format3_Reg<0b0000010110, (outs GR16:$rd), (ins GR16:$rs),
                        "INC\t$rs",
@@ -902,8 +907,10 @@ def DECT_pim : Format3_AutoInc<0b0000011001, (outs), (ins GR16:$rs),
   let mayLoad = 1;
   let mayStore = 1;
 }
+}
 
 // NEG - Negate (two's complement)
+let SchedRW = [WriteImm12] in {
 def NEGr : Format3_Reg<0b0000010100, (outs GR16:$rd), (ins GR16:$rs),
                        "NEG\t$rs",
                        [(set GR16:$rd, (ineg GR16:$rs))]> {
@@ -937,6 +944,7 @@ def NEG_pim : Format3_AutoInc<0b0000010100, (outs), (ins GR16:$rs),
                               []> {
   let mayLoad = 1;
   let mayStore = 1;
+}
 }
 
 // ABS - Absolute value
@@ -984,6 +992,7 @@ def ABS_pim : Format3_AutoInc<0b0000011101, (outs), (ins GR16:$rs),
 let Defs = [ST] in {
 
 // INV - Invert (one's complement)
+let SchedRW = [WriteFast] in {
 def INVr : Format3_Reg<0b0000010101, (outs GR16:$rd), (ins GR16:$rs),
                        "INV\t$rs",
                        [(set GR16:$rd, (not GR16:$rs))]> {
@@ -1017,6 +1026,7 @@ def INV_pim : Format3_AutoInc<0b0000010101, (outs), (ins GR16:$rs),
                               []> {
   let mayLoad = 1;
   let mayStore = 1;
+}
 }
 // SOC - Set Ones Corresponding (OR)
 def SOCrr : Format1_Reg_TwoAddr<0b1110, 0, (outs GR16:$rd), (ins GR16:$rs1, GR16:$rs2),
@@ -1358,6 +1368,7 @@ def CMPBRri : Pseudo<(outs),
 //===----------------------------------------------------------------------===//
 
 // B - Unconditional Branch (single operand format, register indirect)
+let SchedRW = [WriteBranch] in {
 def Br : Format3_IndReg<0b0000010001, (outs), (ins GR16:$rs),
                         "B\t*$rs",
                         [(brind GR16:$rs)]> {
@@ -1393,6 +1404,7 @@ def B_sym : TMS9900Inst<(outs), (ins brtarget16:$target),
   // Second word: target address
   let Inst{31-16} = target;
   let Size = 4;
+}
 }
 
 // JMP - Unconditional jump (PC-relative)
@@ -1435,6 +1447,7 @@ def JOP : Format6<0b00011100, (outs), (ins brtarget8:$disp),
 //===----------------------------------------------------------------------===//
 
 // BL - Branch and Link with register indirect (stores return address in R11)
+let SchedRW = [WriteCall] in {
 def BL : Format3_IndReg<0b0000011010, (outs), (ins GR16:$rs),
                         "BL\t*$rs",
                         [(TMS9900call GR16:$rs)]> {
@@ -1486,8 +1499,10 @@ def BL_ext : TMS9900Inst<(outs), (ins calltarget:$target),
   let Size = 4;
   let isCodeGenOnly = 1;
 }
+}
 
 // BLWP - Branch and Load Workspace Pointer (general addressing)
+let SchedRW = [WriteControl26] in {
 def BLWP : Format3_IndReg<0b0000010000, (outs), (ins GR16:$rs),
                           "BLWP\t*$rs",
                           []> {
@@ -1518,11 +1533,14 @@ def BLWP_pim : Format3_AutoInc<0b0000010000, (outs), (ins GR16:$rs),
                                []> {
   let isCall = 1;
 }
+}
 
 // X - Execute instruction (general addressing)
 def X : Format3_IndReg<0b0000010010, (outs), (ins GR16:$rs),
                        "X\t*$rs",
-                       []>;
+                       []> {
+  let SchedRW = [WriteFast8];
+}
 
 def X_reg : Format3_Reg<0b0000010010, (outs), (ins GR16:$rs),
                         "X\t$rs",
@@ -1560,6 +1578,7 @@ def RET_REAL : Format3_Reg_R11<0b0000010001, (outs), (ins),
   let isTerminator = 1;
   let isBarrier = 1;
   let Uses = [R11];
+  let SchedRW = [WriteBranch];
 }
 
 //===----------------------------------------------------------------------===//
@@ -1573,6 +1592,7 @@ def RET_REAL : Format3_Reg_R11<0b0000010001, (outs), (ins),
 //        Rd has high 16 bits, Rd+1 has low 16 bits
 // Note: Rd must be an even register (R0, R2, R4, R6, R8)
 // We hardcode to R0 and mark that it uses R0 and clobbers R0:R1
+let SchedRW = [WriteSlow] in {
 let Uses = [R0], Defs = [R0, R1] in
 def MPYrr : Format2_Reg_R0<0b001110, (outs), (ins GR16:$rs),
                            "MPY\t$rs,R0",
@@ -1594,12 +1614,14 @@ let Uses = [R0], Defs = [R0, R1] in
 def MPYpim : Format2_AutoInc_R0<0b001110, (outs), (ins GR16:$rs),
                                 "MPY\t*${rs}+,R0",
                                 []>;
+}
 
 // DIV - Divide (unsigned 32/16 -> 16q, 16r)
 // Dividend in Rd:Rd+1 (32-bit input), divisor in Rs
 // Result: quotient in Rd, remainder in Rd+1
 // Note: Rd must be an even register
 // The instruction reads and writes R0:R1 (when Rd=R0)
+let SchedRW = [WriteDiv] in {
 let Uses = [R0, R1], Defs = [R0, R1] in
 def DIVrr : Format2_Reg_R0<0b001111, (outs), (ins GR16:$rs),
                            "DIV\t$rs,R0",
@@ -1621,6 +1643,7 @@ let Uses = [R0, R1], Defs = [R0, R1] in
 def DIVpim : Format2_AutoInc_R0<0b001111, (outs), (ins GR16:$rs),
                                 "DIV\t*${rs}+,R0",
                                 []>;
+}
 
 //===----------------------------------------------------------------------===//
 // XOP (Extended Operation)
@@ -1669,6 +1692,7 @@ def LDCRxm : Format4_Idx<0b001100, (outs),
                          "LDCR\t@${offset}(${ri}),$cnt",
                          []>;
 
+let SchedRW = [WriteCRU] in {
 def STCRr : Format4_Reg<0b001101, (outs), (ins GR16:$rs, cru_count:$cnt),
                         "STCR\t$rs,$cnt",
                         []>;
@@ -1685,6 +1709,7 @@ def STCRxm : Format4_Idx<0b001101, (outs),
                          (ins i16imm:$offset, IdxRegs:$ri, cru_count:$cnt),
                          "STCR\t@${offset}(${ri}),$cnt",
                          []>;
+}
 } // Uses = [R12]
 
 //===----------------------------------------------------------------------===//
@@ -1771,12 +1796,15 @@ def LWPI : Format9<0b00000010111, (outs), (ins i16imm:$imm),
                    "LWPI\t$imm",
                    []> {
   let Defs = [WP];
+  let SchedRW = [WriteFast];
 }
 
 // LIMI - Load Interrupt Mask Immediate
 def LIMI : Format9<0b00000011000, (outs), (ins i16imm:$imm),
                    "LIMI\t$imm",
-                   []>;
+                   []> {
+  let SchedRW = [WriteControl16];
+}
 
 // STST - Store Status Register
 def STST : TMS9900Inst<(outs GR16:$rd), (ins),
@@ -1788,6 +1816,7 @@ def STST : TMS9900Inst<(outs GR16:$rd), (ins),
   let Inst{4} = 0;
   let Inst{3-0} = rd;
   let Uses = [ST];
+  let SchedRW = [WriteFast8];
 }
 
 // STWP - Store Workspace Pointer
@@ -1800,12 +1829,14 @@ def STWP : TMS9900Inst<(outs GR16:$rd), (ins),
   let Inst{4} = 0;
   let Inst{3-0} = rd;
   let Uses = [WP];
+  let SchedRW = [WriteFast8];
 }
 
 //===----------------------------------------------------------------------===//
 // External Instructions
 //===----------------------------------------------------------------------===//
 
+let SchedRW = [WriteImm12] in {
 def IDLE : Format11<0b0000001101000000, (outs), (ins),
                     "IDLE",
                     []>;
@@ -1825,6 +1856,7 @@ def CKON : Format11<0b0000001110100000, (outs), (ins),
 def LREX : Format11<0b0000001111100000, (outs), (ins),
                     "LREX",
                     []>;
+}
 
 //===----------------------------------------------------------------------===//
 // NOP (alias for JMP $+2)
