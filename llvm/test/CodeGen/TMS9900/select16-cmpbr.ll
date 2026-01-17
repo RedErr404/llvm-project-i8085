@@ -12,6 +12,7 @@ entry:
 
 ; CHECK-LABEL: name: select16_cmpbr
 ; CHECK: CMPBRrr
+; CHECK: PHI
 
 ; ASM-LABEL: select16_cmpbr
 ; ASM: C{{[ \t]+}}R{{[0-9]+}},R{{[0-9]+}}

@@ -1426,6 +1426,12 @@ TMS9900TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     Register RHSReg = MI.getOperand(5).getReg();
 
     MachineFunction *MF = BB->getParent();
+    MachineRegisterInfo &MRI = MF->getRegInfo();
+    assert(Register::isVirtualRegister(DstReg) &&
+           "SELECT16 expects a virtual destination register");
+    const TargetRegisterClass *RC = MRI.getRegClass(DstReg);
+    Register TrueVReg = MRI.createVirtualRegister(RC);
+    Register FalseVReg = MRI.createVirtualRegister(RC);
 
     MachineBasicBlock *StartBB = BB;
     MachineBasicBlock *TrueBB = MF->CreateMachineBasicBlock();
@@ -1491,17 +1497,25 @@ TMS9900TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     }
 
 skip_normal_jump:
-    // TrueBB: Copy true value to destination
-    BuildMI(TrueBB, DL, TII.get(TMS9900::MOVrr), DstReg)
+    // TrueBB: Copy true value to a temporary
+    BuildMI(TrueBB, DL, TII.get(TMS9900::MOVrr), TrueVReg)
         .addReg(TrueReg);
     BuildMI(TrueBB, DL, TII.get(TMS9900::JMP)).addMBB(DoneBB);
     TrueBB->addSuccessor(DoneBB);
 
-    // FalseBB: Copy false value to destination
-    BuildMI(FalseBB, DL, TII.get(TMS9900::MOVrr), DstReg)
+    // FalseBB: Copy false value to a temporary
+    BuildMI(FalseBB, DL, TII.get(TMS9900::MOVrr), FalseVReg)
         .addReg(FalseReg);
     // Fall through to DoneBB (or add explicit jump)
     FalseBB->addSuccessor(DoneBB);
+
+    // DoneBB: Merge the select result.
+    BuildMI(*DoneBB, DoneBB->begin(), DL, TII.get(TargetOpcode::PHI), DstReg)
+        .addReg(TrueVReg)
+        .addMBB(TrueBB)
+        .addReg(FalseVReg)
+        .addMBB(FalseBB);
+    MF->getProperties().reset(MachineFunctionProperties::Property::NoPHIs);
 
     MI.eraseFromParent();
     return DoneBB;

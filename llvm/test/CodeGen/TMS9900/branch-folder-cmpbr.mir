@@ -1,4 +1,5 @@
 # RUN: llc -mtriple=tms9900 -run-pass=branch-folder %s -o - | FileCheck %s
+# RUN: llc -mtriple=tms9900 -run-pass=machine-scheduler -verify-machineinstrs %s -o - | FileCheck %s --check-prefix=MSCHED
 
 --- |
   define i16 @cmpbr_invert() {
@@ -29,3 +30,5 @@ body: |
 # CHECK: bb.0:
 # NOTE: branch-folder may invert CMPBRrr to remove the following JMP.
 # CHECK: CMPBRrr $r{{[0-9]+}}, $r{{[0-9]+}}, 22, %bb.2
+# MSCHED-LABEL: name: cmpbr_invert
+# MSCHED: CMPBRrr
