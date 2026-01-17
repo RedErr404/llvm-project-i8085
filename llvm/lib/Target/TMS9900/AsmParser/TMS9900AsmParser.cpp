@@ -50,14 +50,16 @@ private:
   KindTy Kind;
   SMLoc StartLoc, EndLoc;
 
+  struct MemOp {
+    unsigned RegNum;
+    const MCExpr *Offset;
+  };
+
   union {
     StringRef Tok;
     unsigned RegNum;
     const MCExpr *Imm;
-    struct {
-      unsigned RegNum;
-      const MCExpr *Offset;
-    } Mem;
+    MemOp Mem;
   };
 
 public:

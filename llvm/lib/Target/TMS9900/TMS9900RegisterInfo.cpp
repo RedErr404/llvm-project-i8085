@@ -32,7 +32,7 @@ using namespace llvm;
 #include "TMS9900GenRegisterInfo.inc"
 
 TMS9900RegisterInfo::TMS9900RegisterInfo(const TMS9900Subtarget &STI)
-    : TMS9900GenRegisterInfo(TMS9900::R11), Subtarget(STI) {}
+    : TMS9900GenRegisterInfo(TMS9900::R11) {}
 
 const MCPhysReg *
 TMS9900RegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {

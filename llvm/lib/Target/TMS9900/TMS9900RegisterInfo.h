@@ -24,8 +24,6 @@ namespace llvm {
 class TMS9900Subtarget;
 
 class TMS9900RegisterInfo : public TMS9900GenRegisterInfo {
-  const TMS9900Subtarget &Subtarget;
-
 public:
   TMS9900RegisterInfo(const TMS9900Subtarget &STI);
 

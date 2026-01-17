@@ -94,7 +94,7 @@ static unsigned getJumpOpcodeForCC(ISD::CondCode CC) {
 
 TMS9900InstrInfo::TMS9900InstrInfo(const TMS9900Subtarget &STI)
     : TMS9900GenInstrInfo(TMS9900::ADJCALLSTACKDOWN, TMS9900::ADJCALLSTACKUP),
-      RI(STI), Subtarget(STI) {}
+      RI(STI) {}
 
 void TMS9900InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                     MachineBasicBlock::iterator I,

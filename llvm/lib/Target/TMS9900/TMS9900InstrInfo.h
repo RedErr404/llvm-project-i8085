@@ -26,7 +26,6 @@ class TMS9900Subtarget;
 
 class TMS9900InstrInfo : public TMS9900GenInstrInfo {
   const TMS9900RegisterInfo RI;
-  const TMS9900Subtarget &Subtarget;
 
 public:
   explicit TMS9900InstrInfo(const TMS9900Subtarget &STI);
