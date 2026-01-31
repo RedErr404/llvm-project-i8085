@@ -72,6 +72,12 @@ public:
   /// LowerOperation - Provide custom lowering hooks for some operations.
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
+  /// ReplaceNodeResults - Replace the results of node with an illegal result
+  /// type with new values built out of custom code. Called during type
+  /// legalization for nodes with Custom action.
+  void ReplaceNodeResults(SDNode *N, SmallVectorImpl<SDValue> &Results,
+                          SelectionDAG &DAG) const override;
+
   /// getTargetNodeName - This method returns the name of a target specific
   /// DAG node.
   const char *getTargetNodeName(unsigned Opcode) const override;

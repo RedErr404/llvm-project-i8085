@@ -418,6 +418,26 @@ SDValue TMS9900TargetLowering::LowerOperation(SDValue Op,
   }
 }
 
+void TMS9900TargetLowering::ReplaceNodeResults(SDNode *N,
+                                                SmallVectorImpl<SDValue> &Results,
+                                                SelectionDAG &DAG) const {
+  SDLoc DL(N);
+  switch (N->getOpcode()) {
+  default:
+    return; // Leave Results empty to fall through to default expansion
+  case ISD::SHL:
+  case ISD::SRA:
+  case ISD::SRL: {
+    // During type legalization, i32 shifts need custom expansion.
+    // Delegate to LowerShift32 which correctly splits into i16 operations.
+    SDValue Result = LowerShift32(SDValue(N, 0), DAG);
+    if (Result.getNode())
+      Results.push_back(Result);
+    return;
+  }
+  }
+}
+
 SDValue TMS9900TargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
   LoadSDNode *LD = cast<LoadSDNode>(Op);
   SDLoc DL(Op);
@@ -963,13 +983,17 @@ SDValue TMS9900TargetLowering::LowerSETCC(SDValue Op,
   if (LHS.getValueType() != MVT::i32)
     return SDValue();
 
-  SDValue Shift = DAG.getConstant(16, DL, MVT::i16);
-  SDValue LHSHi = DAG.getNode(ISD::TRUNCATE, DL, MVT::i16,
-                              DAG.getNode(ISD::SRL, DL, MVT::i32, LHS, Shift));
-  SDValue RHSHi = DAG.getNode(ISD::TRUNCATE, DL, MVT::i16,
-                              DAG.getNode(ISD::SRL, DL, MVT::i32, RHS, Shift));
-  SDValue LHSLo = DAG.getNode(ISD::TRUNCATE, DL, MVT::i16, LHS);
-  SDValue RHSLo = DAG.getNode(ISD::TRUNCATE, DL, MVT::i16, RHS);
+  // Split i32 operands into hi/lo i16 halves using EXTRACT_ELEMENT.
+  // This avoids creating i32 SRL nodes which would trigger type legalization
+  // issues (ReplaceNodeResults needed for Custom-action i32 shifts).
+  SDValue LHSLo = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, LHS,
+                              DAG.getConstant(0, DL, MVT::i16));
+  SDValue LHSHi = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, LHS,
+                              DAG.getConstant(1, DL, MVT::i16));
+  SDValue RHSLo = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, RHS,
+                              DAG.getConstant(0, DL, MVT::i16));
+  SDValue RHSHi = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, RHS,
+                              DAG.getConstant(1, DL, MVT::i16));
 
   auto setcc16 = [&](SDValue A, SDValue B, ISD::CondCode Cc) {
     return DAG.getSetCC(DL, MVT::i16, A, B, Cc);
