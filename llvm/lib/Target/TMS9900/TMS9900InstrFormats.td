@@ -776,6 +776,259 @@ class Format1_IdxIdx<bits<4> opcode, bit byteflag, dag outs, dag ins,
 }
 
 //===----------------------------------------------------------------------===//
+// Format 1 with Remaining Addressing Mode Combinations
+// The TMS9900 supports all 16 combinations of Ts (2 bits) x Td (2 bits).
+// The classes above cover Reg-to-Reg, Load (any src → Reg dest),
+// Store (Reg src → any dest), and Sym/Idx-to-Sym/Idx.
+// Below are the remaining combinations involving indirect (*Rn) and
+// auto-increment (*Rn+) with non-register partners.
+//===----------------------------------------------------------------------===//
+
+// Indirect-to-Indirect: OP *Rs,*Rd
+class Format1_IndInd<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                     string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
+  bits<4> rd;
+  bits<4> rs;
+
+  bits<16> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b01;     // Td = indirect
+  let Inst{9-6} = rd;
+  let Inst{5-4} = 0b01;       // Ts = indirect
+  let Inst{3-0} = rs;
+}
+
+// Symbolic-to-Indirect: OP @addr,*Rd
+class Format1_SymInd<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                     string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
+  bits<4> rd;
+  bits<16> addr;
+
+  bits<32> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b01;     // Td = indirect
+  let Inst{9-6} = rd;
+  let Inst{5-4} = 0b10;       // Ts = symbolic
+  let Inst{3-0} = 0b0000;     // S = 0 (symbolic)
+  let Inst{31-16} = addr;
+
+  let Size = 4;
+}
+
+// Indexed-to-Indirect: OP @off(Rs),*Rd
+class Format1_IdxInd<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                     string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
+  bits<4> rd;
+  bits<4> ri;
+  bits<16> offset;
+
+  bits<32> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b01;     // Td = indirect
+  let Inst{9-6} = rd;
+  let Inst{5-4} = 0b10;       // Ts = indexed
+  let Inst{3-0} = ri;
+  let Inst{31-16} = offset;
+
+  let Size = 4;
+}
+
+// AutoInc-to-Indirect: OP *Rs+,*Rd
+class Format1_AutoIncInd<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                         string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
+  bits<4> rd;
+  bits<4> rs;
+
+  bits<16> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b01;     // Td = indirect
+  let Inst{9-6} = rd;
+  let Inst{5-4} = 0b11;       // Ts = auto-increment
+  let Inst{3-0} = rs;
+}
+
+// Indirect-to-Symbolic: OP *Rs,@addr
+class Format1_IndSym<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                     string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
+  bits<16> addr;
+  bits<4> rs;
+
+  bits<32> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b10;     // Td = symbolic
+  let Inst{9-6} = 0b0000;     // D = 0 (symbolic)
+  let Inst{5-4} = 0b01;       // Ts = indirect
+  let Inst{3-0} = rs;
+  let Inst{31-16} = addr;
+
+  let Size = 4;
+}
+
+// Indirect-to-Indexed: OP *Rs,@off(Rd)
+class Format1_IndIdx<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                     string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
+  bits<4> ri;
+  bits<16> offset;
+  bits<4> rs;
+
+  bits<32> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b10;     // Td = indexed
+  let Inst{9-6} = ri;
+  let Inst{5-4} = 0b01;       // Ts = indirect
+  let Inst{3-0} = rs;
+  let Inst{31-16} = offset;
+
+  let Size = 4;
+}
+
+// Indirect-to-AutoInc: OP *Rs,*Rd+
+class Format1_IndAutoInc<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                         string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
+  bits<4> rd;
+  bits<4> rs;
+
+  bits<16> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b11;     // Td = auto-increment
+  let Inst{9-6} = rd;
+  let Inst{5-4} = 0b01;       // Ts = indirect
+  let Inst{3-0} = rs;
+}
+
+// Symbolic-to-AutoInc: OP @addr,*Rd+
+class Format1_SymAutoInc<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                         string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
+  bits<4> rd;
+  bits<16> addr;
+
+  bits<32> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b11;     // Td = auto-increment
+  let Inst{9-6} = rd;
+  let Inst{5-4} = 0b10;       // Ts = symbolic
+  let Inst{3-0} = 0b0000;     // S = 0 (symbolic)
+  let Inst{31-16} = addr;
+
+  let Size = 4;
+}
+
+// Indexed-to-AutoInc: OP @off(Rs),*Rd+
+class Format1_IdxAutoInc<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                         string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
+  bits<4> rd;
+  bits<4> ri;
+  bits<16> offset;
+
+  bits<32> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b11;     // Td = auto-increment
+  let Inst{9-6} = rd;
+  let Inst{5-4} = 0b10;       // Ts = indexed
+  let Inst{3-0} = ri;
+  let Inst{31-16} = offset;
+
+  let Size = 4;
+}
+
+// AutoInc-to-Symbolic: OP *Rs+,@addr
+class Format1_AutoIncSym<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                         string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
+  bits<16> addr;
+  bits<4> rs;
+
+  bits<32> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b10;     // Td = symbolic
+  let Inst{9-6} = 0b0000;     // D = 0 (symbolic)
+  let Inst{5-4} = 0b11;       // Ts = auto-increment
+  let Inst{3-0} = rs;
+  let Inst{31-16} = addr;
+
+  let Size = 4;
+}
+
+// AutoInc-to-Indexed: OP *Rs+,@off(Rd)
+class Format1_AutoIncIdx<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                         string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
+  bits<4> ri;
+  bits<16> offset;
+  bits<4> rs;
+
+  bits<32> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b10;     // Td = indexed
+  let Inst{9-6} = ri;
+  let Inst{5-4} = 0b11;       // Ts = auto-increment
+  let Inst{3-0} = rs;
+  let Inst{31-16} = offset;
+
+  let Size = 4;
+}
+
+// AutoInc-to-AutoInc: OP *Rs+,*Rd+
+class Format1_AutoIncAutoInc<bits<4> opcode, bit byteflag, dag outs, dag ins,
+                             string asmstr, list<dag> pattern>
+    : TMS9900Inst<outs, ins, asmstr, pattern> {
+  let SchedRW = [WriteMem];
+  bits<4> rd;
+  bits<4> rs;
+
+  bits<16> Inst;
+
+  let Inst{15-13} = opcode{3-1};
+  let Inst{12} = byteflag;
+  let Inst{11-10} = 0b11;     // Td = auto-increment
+  let Inst{9-6} = rd;
+  let Inst{5-4} = 0b11;       // Ts = auto-increment
+  let Inst{3-0} = rs;
+}
+
+//===----------------------------------------------------------------------===//
 // Format 6: Jump (PC-relative)
 // [opcode:8][disp:8]
 //===----------------------------------------------------------------------===//

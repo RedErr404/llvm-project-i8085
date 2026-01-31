@@ -910,6 +910,10 @@ ParseStatus TMS9900AsmParser::parseDirective(AsmToken DirectiveID) {
   if (IDVal.equals_insensitive("AORG"))
     return parseDirectiveAORG() ? ParseStatus::Failure : ParseStatus::Success;
 
+  // .word is target-dependent; on TMS9900 it emits 16-bit values (same as DATA)
+  if (IDVal == ".word")
+    return parseDirectiveDATA() ? ParseStatus::Failure : ParseStatus::Success;
+
   return ParseStatus::NoMatch;
 }
 

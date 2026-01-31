@@ -536,6 +536,85 @@ defm C  : Format1MemMem<0b1000, 0, "C">;
 defm CB : Format1MemMem<0b1000, 1, "CB">;
 }
 
+//===----------------------------------------------------------------------===//
+// Format 1 Extended Mem-to-Mem (Remaining Addressing Mode Combinations)
+// Covers indirect (*Rn), auto-increment (*Rn+) with non-register partners.
+// These are assembly-only (no DAG patterns) since codegen uses register
+// intermediaries for these combinations.
+//===----------------------------------------------------------------------===//
+
+multiclass Format1ExtMem<bits<4> opcode, bit byteflag, string asmname> {
+  // Indirect ↔ Indirect
+  def ii : Format1_IndInd<opcode, byteflag, (outs),
+                          (ins GR16:$rd, GR16:$rs),
+                          !strconcat(asmname, "\t*$rs,*$rd"), []>;
+  // Symbolic → Indirect
+  def ai : Format1_SymInd<opcode, byteflag, (outs),
+                          (ins GR16:$rd, symaddr:$addr),
+                          !strconcat(asmname, "\t@$addr,*$rd"), []>;
+  // Indexed → Indirect
+  def xi : Format1_IdxInd<opcode, byteflag, (outs),
+                          (ins GR16:$rd, i16imm:$offset, IdxRegs:$ri),
+                          !strconcat(asmname, "\t@${offset}(${ri}),*$rd"), []>;
+  // AutoInc → Indirect
+  def pii : Format1_AutoIncInd<opcode, byteflag, (outs),
+                               (ins GR16:$rd, GR16:$rs),
+                               !strconcat(asmname, "\t*${rs}+,*$rd"), []>;
+  // Indirect → Symbolic
+  def ia : Format1_IndSym<opcode, byteflag, (outs),
+                          (ins symaddr:$addr, GR16:$rs),
+                          !strconcat(asmname, "\t*$rs,@$addr"), []>;
+  // Indirect → Indexed
+  def ix : Format1_IndIdx<opcode, byteflag, (outs),
+                          (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
+                          !strconcat(asmname, "\t*$rs,@${offset}(${ri})"), []>;
+  // Indirect → AutoInc
+  def ipi : Format1_IndAutoInc<opcode, byteflag, (outs),
+                               (ins GR16:$rd, GR16:$rs),
+                               !strconcat(asmname, "\t*$rs,*${rd}+"), []>;
+  // Symbolic → AutoInc
+  def api : Format1_SymAutoInc<opcode, byteflag, (outs),
+                               (ins GR16:$rd, symaddr:$addr),
+                               !strconcat(asmname, "\t@$addr,*${rd}+"), []>;
+  // Indexed → AutoInc
+  def xpi : Format1_IdxAutoInc<opcode, byteflag, (outs),
+                               (ins GR16:$rd, i16imm:$offset, IdxRegs:$ri),
+                               !strconcat(asmname,
+                                          "\t@${offset}(${ri}),*${rd}+"), []>;
+  // AutoInc → Symbolic
+  def pia : Format1_AutoIncSym<opcode, byteflag, (outs),
+                               (ins symaddr:$addr, GR16:$rs),
+                               !strconcat(asmname, "\t*${rs}+,@$addr"), []>;
+  // AutoInc → Indexed
+  def pix : Format1_AutoIncIdx<opcode, byteflag, (outs),
+                               (ins i16imm:$offset, IdxRegs:$ri, GR16:$rs),
+                               !strconcat(asmname,
+                                          "\t*${rs}+,@${offset}(${ri})"), []>;
+  // AutoInc → AutoInc
+  def pipi : Format1_AutoIncAutoInc<opcode, byteflag, (outs),
+                                    (ins GR16:$rd, GR16:$rs),
+                                    !strconcat(asmname, "\t*${rs}+,*${rd}+"),
+                                    []>;
+}
+
+let Defs = [ST], mayLoad = 1, mayStore = 1 in {
+defm MOV  : Format1ExtMem<0b1100, 0, "MOV">;
+defm MOVB : Format1ExtMem<0b1100, 1, "MOVB">;
+defm A    : Format1ExtMem<0b1010, 0, "A">;
+defm AB   : Format1ExtMem<0b1010, 1, "AB">;
+defm S    : Format1ExtMem<0b0110, 0, "S">;
+defm SB   : Format1ExtMem<0b0110, 1, "SB">;
+defm SOC  : Format1ExtMem<0b1110, 0, "SOC">;
+defm SOCB : Format1ExtMem<0b1110, 1, "SOCB">;
+defm SZC  : Format1ExtMem<0b0100, 0, "SZC">;
+defm SZCB : Format1ExtMem<0b0100, 1, "SZCB">;
+}
+
+let Defs = [ST], mayLoad = 1 in {
+defm C  : Format1ExtMem<0b1000, 0, "C">;
+defm CB : Format1ExtMem<0b1000, 1, "CB">;
+}
+
 // LI - Load Immediate (sets status based on value loaded)
 let Defs = [ST] in
 def LI : Format8<0b0000, (outs GR16:$rd), (ins i16imm:$imm),
