@@ -28,14 +28,6 @@ using namespace lld::elf;
 
 namespace {
 
-// TMS9900 relocation types (must match TMS9900ELFObjectWriter.cpp)
-enum {
-  R_TMS9900_NONE = 0,
-  R_TMS9900_16 = 1,
-  R_TMS9900_PCREL_8 = 2,
-  R_TMS9900_PCREL_16 = 3,
-};
-
 class TMS9900 final : public TargetInfo {
 public:
   TMS9900();
@@ -67,10 +59,17 @@ void TMS9900::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const 
   switch (rel.type) {
   case R_TMS9900_NONE:
     break;
+  case R_TMS9900_8:
+    checkIntUInt(loc, val, 8, rel);
+    *loc = val;
+    break;
   case R_TMS9900_16:
-    // TMS9900 is big-endian
     checkIntUInt(loc, val, 16, rel);
     write16be(loc, val);
+    break;
+  case R_TMS9900_32:
+    // 32-bit absolute (used by DWARF debug sections)
+    write32be(loc, val);
     break;
   case R_TMS9900_PCREL_8: {
     // PC-relative 8-bit offset (used for JMP instructions)
@@ -83,7 +82,6 @@ void TMS9900::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const 
     break;
   }
   case R_TMS9900_PCREL_16:
-    // PC-relative 16-bit offset
     checkIntUInt(loc, val, 16, rel);
     write16be(loc, val);
     break;

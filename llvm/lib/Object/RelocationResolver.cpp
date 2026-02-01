@@ -178,6 +178,7 @@ static uint64_t resolveMSP430(uint64_t Type, uint64_t Offset, uint64_t S,
 
 static bool supportsTMS9900(uint64_t Type) {
   switch (Type) {
+  case ELF::R_TMS9900_32:
   case ELF::R_TMS9900_16:
   case ELF::R_TMS9900_8:
     return true;
@@ -189,6 +190,8 @@ static bool supportsTMS9900(uint64_t Type) {
 static uint64_t resolveTMS9900(uint64_t Type, uint64_t Offset, uint64_t S,
                                uint64_t /*LocData*/, int64_t Addend) {
   switch (Type) {
+  case ELF::R_TMS9900_32:
+    return (S + Addend) & 0xFFFFFFFF;
   case ELF::R_TMS9900_16:
     return (S + Addend) & 0xFFFF;
   case ELF::R_TMS9900_8:

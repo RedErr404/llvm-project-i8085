@@ -38,7 +38,7 @@ protected:
     case FK_Data_2:
       return ELF::R_TMS9900_16;
     case FK_Data_4:
-      return ELF::R_TMS9900_16;  // Use 16-bit for 32-bit too (will be split)
+      return ELF::R_TMS9900_32;
     case TMS9900::fixup_tms9900_16:
       return ELF::R_TMS9900_16;
     case TMS9900::fixup_tms9900_8:
