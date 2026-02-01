@@ -14,6 +14,7 @@
 #include "MCTargetDesc/TMS9900FixupKinds.h"
 #include "TargetInfo/TMS9900TargetInfo.h"
 #include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCDwarf.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/MCInstrInfo.h"
@@ -101,18 +102,29 @@ public:
     }
 
     UseIntegratedAssembler = true;  // Enable AsmParser for .S files
-    SupportsDebugInformation = false;
+    SupportsDebugInformation = true;
+    UsesCFIWithoutEH = true;
+    DwarfRegNumForCFI = true;
   }
 
   bool shouldOmitSectionDirective(StringRef SectionName) const override {
-    return true;
+    // Only omit for standard code/data sections; debug sections need directives
+    return MCAsmInfo::shouldOmitSectionDirective(SectionName);
   }
 };
 
 static MCAsmInfo *createTMS9900MCAsmInfo(const MCRegisterInfo &MRI,
                                           const Triple &TT,
                                           const MCTargetOptions &Options) {
-  return new TMS9900MCAsmInfo(TT);
+  MCAsmInfo *MAI = new TMS9900MCAsmInfo(TT);
+
+  // Initial CFA state for the CIE: CFA = R10 (SP) + 0
+  // On function entry, the stack pointer is the canonical frame address.
+  unsigned DwarfSP = MRI.getDwarfRegNum(TMS9900::R10, true);
+  MAI->addInitialFrameState(
+      MCCFIInstruction::cfiDefCfa(nullptr, DwarfSP, 0));
+
+  return MAI;
 }
 
 static MCInstrInfo *createTMS9900MCInstrInfo() {

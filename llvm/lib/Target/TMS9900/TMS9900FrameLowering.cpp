@@ -37,6 +37,7 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/MC/MCDwarf.h"
 #include "llvm/Support/ErrorHandling.h"
 
 using namespace llvm;
@@ -98,6 +99,18 @@ void TMS9900FrameLowering::emitPrologue(MachineFunction &MF,
     BuildMI(MBB, MBBI, DL, TII.get(TMS9900::MOVmi))
         .addReg(TMS9900::R10)   // pointer (destination address)
         .addReg(TMS9900::R11);  // source value
+
+    // CFI: CFA is now at R10+2 (we pushed 2 bytes)
+    unsigned CFIIndex = MF.addFrameInst(
+        MCCFIInstruction::cfiDefCfaOffset(nullptr, 2));
+    BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
+        .addCFIIndex(CFIIndex);
+
+    // CFI: R11 (return address, DWARF reg 11) is saved at CFA-2
+    CFIIndex = MF.addFrameInst(
+        MCCFIInstruction::createOffset(nullptr, 11, -2));
+    BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
+        .addCFIIndex(CFIIndex);
   }
 
   // Allocate stack space
@@ -106,6 +119,12 @@ void TMS9900FrameLowering::emitPrologue(MachineFunction &MF,
     BuildMI(MBB, MBBI, DL, TII.get(TMS9900::AI), TMS9900::R10)
         .addReg(TMS9900::R10)
         .addImm(-static_cast<int64_t>(StackSize));
+
+    // CFI: CFA offset grows by StackSize
+    unsigned CFIIndex = MF.addFrameInst(
+        MCCFIInstruction::cfiDefCfaOffset(nullptr, StackSize + (MFI.hasCalls() ? 2 : 0)));
+    BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
+        .addCFIIndex(CFIIndex);
   }
 }
 
@@ -152,6 +171,14 @@ void TMS9900FrameLowering::emitEpilogue(MachineFunction &MF,
         .addDef(TMS9900::R11)   // $rd - loaded value
         .addDef(TMS9900::R10)   // $rs_wb - incremented pointer (tied to $rs)
         .addUse(TMS9900::R10);  // $rs - original pointer
+  }
+
+  // CFI: Restore CFA to entry state
+  {
+    unsigned CFIIndex = MF.addFrameInst(
+        MCCFIInstruction::cfiDefCfaOffset(nullptr, 0));
+    BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
+        .addCFIIndex(CFIIndex);
   }
 
   // The actual return (B *R11) is handled by the RET pseudo

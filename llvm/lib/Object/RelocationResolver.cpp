@@ -176,6 +176,28 @@ static uint64_t resolveMSP430(uint64_t Type, uint64_t Offset, uint64_t S,
   }
 }
 
+static bool supportsTMS9900(uint64_t Type) {
+  switch (Type) {
+  case ELF::R_TMS9900_16:
+  case ELF::R_TMS9900_8:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static uint64_t resolveTMS9900(uint64_t Type, uint64_t Offset, uint64_t S,
+                               uint64_t /*LocData*/, int64_t Addend) {
+  switch (Type) {
+  case ELF::R_TMS9900_16:
+    return (S + Addend) & 0xFFFF;
+  case ELF::R_TMS9900_8:
+    return (S + Addend) & 0xFF;
+  default:
+    llvm_unreachable("Invalid relocation type");
+  }
+}
+
 static bool supportsPPC64(uint64_t Type) {
   switch (Type) {
   case ELF::R_PPC64_ADDR32:
@@ -837,6 +859,8 @@ getRelocationResolver(const ObjectFile &Obj) {
       return {supportsMips32, resolveMips32};
     case Triple::msp430:
       return {supportsMSP430, resolveMSP430};
+    case Triple::tms9900:
+      return {supportsTMS9900, resolveTMS9900};
     case Triple::sparc:
       return {supportsSparc32, resolveSparc32};
     case Triple::hexagon:

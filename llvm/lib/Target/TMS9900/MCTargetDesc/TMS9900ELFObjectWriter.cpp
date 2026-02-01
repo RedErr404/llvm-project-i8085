@@ -20,16 +20,6 @@ using namespace llvm;
 
 namespace {
 
-// Custom relocation types for TMS9900
-// These are arbitrary values since there's no official ABI
-enum {
-  R_TMS9900_NONE = 0,
-  R_TMS9900_16 = 1,
-  R_TMS9900_PCREL_8 = 2,
-  R_TMS9900_PCREL_16 = 3,
-  R_TMS9900_8 = 4,
-};
-
 class TMS9900ELFObjectWriter : public MCELFObjectTargetWriter {
 public:
   TMS9900ELFObjectWriter(uint8_t OSABI)
@@ -44,19 +34,19 @@ protected:
     // Translate fixup kind to ELF relocation type.
     switch (Fixup.getTargetKind()) {
     case FK_Data_1:
-      return R_TMS9900_NONE;  // 8-bit data, no relocation needed typically
+      return ELF::R_TMS9900_NONE;  // 8-bit data, no relocation needed typically
     case FK_Data_2:
-      return R_TMS9900_16;
+      return ELF::R_TMS9900_16;
     case FK_Data_4:
-      return R_TMS9900_16;  // Use 16-bit for 32-bit too (will be split)
+      return ELF::R_TMS9900_16;  // Use 16-bit for 32-bit too (will be split)
     case TMS9900::fixup_tms9900_16:
-      return R_TMS9900_16;
+      return ELF::R_TMS9900_16;
     case TMS9900::fixup_tms9900_8:
-      return R_TMS9900_8;
+      return ELF::R_TMS9900_8;
     case TMS9900::fixup_tms9900_pcrel_8:
-      return R_TMS9900_PCREL_8;
+      return ELF::R_TMS9900_PCREL_8;
     case TMS9900::fixup_tms9900_pcrel_16:
-      return R_TMS9900_PCREL_16;
+      return ELF::R_TMS9900_PCREL_16;
     default:
       llvm_unreachable("Invalid fixup kind");
     }
