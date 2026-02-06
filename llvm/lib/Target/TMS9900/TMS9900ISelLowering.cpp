@@ -1087,9 +1087,10 @@ TMS9900TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     BuildMI(*BB, MI, DL, TII.get(TMS9900::MOVrr), TMS9900::R0)
         .addReg(LhsReg);
 
-    // MPY $rhs (uses R0 implicitly, outputs to R0:R1)
+    // MPY $rhs,R0 (multiplicand in R0, result in R0:R1)
     BuildMI(*BB, MI, DL, TII.get(TMS9900::MPYrr))
-        .addReg(RhsReg);
+        .addReg(RhsReg)
+        .addReg(TMS9900::R0);
 
     // MOV R1, $dst (low 16 bits of result are in R1)
     BuildMI(*BB, MI, DL, TII.get(TMS9900::MOVrr), DstReg)
@@ -1117,9 +1118,10 @@ TMS9900TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     BuildMI(*BB, MI, DL, TII.get(TMS9900::MOVrr), TMS9900::R1)
         .addReg(DividendReg);
 
-    // DIV $divisor (uses R0:R1 implicitly, outputs to R0:R1)
+    // DIV $divisor,R0 (divides R0:R1, quotient in R0, remainder in R1)
     BuildMI(*BB, MI, DL, TII.get(TMS9900::DIVrr))
-        .addReg(DivisorReg);
+        .addReg(DivisorReg)
+        .addReg(TMS9900::R0);
 
     // MOV R0, $dst (quotient)
     BuildMI(*BB, MI, DL, TII.get(TMS9900::MOVrr), DstReg)
@@ -1143,9 +1145,10 @@ TMS9900TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     BuildMI(*BB, MI, DL, TII.get(TMS9900::MOVrr), TMS9900::R1)
         .addReg(DividendReg);
 
-    // DIV $divisor (uses R0:R1 implicitly, outputs to R0:R1)
+    // DIV $divisor,R0 (divides R0:R1, quotient in R0, remainder in R1)
     BuildMI(*BB, MI, DL, TII.get(TMS9900::DIVrr))
-        .addReg(DivisorReg);
+        .addReg(DivisorReg)
+        .addReg(TMS9900::R0);
 
     // MOV R1, $dst (remainder)
     BuildMI(*BB, MI, DL, TII.get(TMS9900::MOVrr), DstReg)
@@ -1266,9 +1269,10 @@ TMS9900TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     // DoDivideBB: Perform unsigned divide with absolute values
     // CLR R0 (high word = 0)
     BuildMI(DoDivideBB, DL, TII.get(TMS9900::CLRr), TMS9900::R0);
-    // DIV R3 (divides R0:R1 by R3, quotient in R0, remainder in R1)
+    // DIV R3,R0 (divides R0:R1 by R3, quotient in R0, remainder in R1)
     BuildMI(DoDivideBB, DL, TII.get(TMS9900::DIVrr))
-        .addReg(TMS9900::R3);
+        .addReg(TMS9900::R3)
+        .addReg(TMS9900::R0);
     // Check if we need to negate result (R2 != 0)
     BuildMI(DoDivideBB, DL, TII.get(TMS9900::CI))
         .addReg(TMS9900::R2)
@@ -1397,9 +1401,10 @@ TMS9900TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     // DoDivideBB: Perform unsigned divide
     // CLR R0 (high word = 0)
     BuildMI(DoDivideBB, DL, TII.get(TMS9900::CLRr), TMS9900::R0);
-    // DIV R3 (divides R0:R1 by R3, quotient in R0, remainder in R1)
+    // DIV R3,R0 (divides R0:R1 by R3, quotient in R0, remainder in R1)
     BuildMI(DoDivideBB, DL, TII.get(TMS9900::DIVrr))
-        .addReg(TMS9900::R3);
+        .addReg(TMS9900::R3)
+        .addReg(TMS9900::R0);
     // Check if we need to negate remainder (dividend was negative)
     BuildMI(DoDivideBB, DL, TII.get(TMS9900::CI))
         .addReg(TMS9900::R2)
