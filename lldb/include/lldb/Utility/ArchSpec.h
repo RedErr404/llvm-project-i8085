@@ -173,6 +173,8 @@ public:
 
     eCore_msp430,
 
+    eCore_tms9900,
+
     eCore_ppc_generic,
     eCore_ppc_ppc601,
     eCore_ppc_ppc602,

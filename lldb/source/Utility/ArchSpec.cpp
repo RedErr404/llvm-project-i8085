@@ -158,6 +158,10 @@ static const CoreDefinition g_core_definitions[] = {
     {eByteOrderLittle, 2, 2, 4, llvm::Triple::msp430, ArchSpec::eCore_msp430,
      "msp430"},
 
+    // TMS9900
+    {eByteOrderBig, 2, 2, 4, llvm::Triple::tms9900, ArchSpec::eCore_tms9900,
+     "tms9900"},
+
     {eByteOrderBig, 4, 4, 4, llvm::Triple::ppc, ArchSpec::eCore_ppc_generic,
      "powerpc"},
     {eByteOrderBig, 4, 4, 4, llvm::Triple::ppc, ArchSpec::eCore_ppc_ppc601,
@@ -408,6 +412,8 @@ static const ArchDefinitionEntry g_elf_arch_entries[] = {
      ArchSpec::eMIPSSubType_mips64r6el, 0xFFFFFFFFu, 0xFFFFFFFFu}, // mips64r6el
     {ArchSpec::eCore_msp430, llvm::ELF::EM_MSP430, LLDB_INVALID_CPUTYPE,
      0xFFFFFFFFu, 0xFFFFFFFFu}, // MSP430
+    {ArchSpec::eCore_tms9900, llvm::ELF::EM_TMS9900, LLDB_INVALID_CPUTYPE,
+     0xFFFFFFFFu, 0xFFFFFFFFu}, // TMS9900
     {ArchSpec::eCore_hexagon_generic, llvm::ELF::EM_HEXAGON,
      LLDB_INVALID_CPUTYPE, 0xFFFFFFFFu, 0xFFFFFFFFu}, // HEXAGON
     {ArchSpec::eCore_arc, llvm::ELF::EM_ARC_COMPACT2, LLDB_INVALID_CPUTYPE,

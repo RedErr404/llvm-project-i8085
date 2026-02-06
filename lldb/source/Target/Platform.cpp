@@ -2059,6 +2059,12 @@ size_t Platform::GetSoftwareBreakpointTrapOpcode(Target &target,
     trap_opcode_size = sizeof(g_msp430_opcode);
   } break;
 
+  case llvm::Triple::tms9900: {
+    static const uint8_t g_tms9900_opcode[] = {0x00, 0x00}; // undefined opcode
+    trap_opcode = g_tms9900_opcode;
+    trap_opcode_size = sizeof(g_tms9900_opcode);
+  } break;
+
   case llvm::Triple::systemz: {
     static const uint8_t g_hex_opcode[] = {0x00, 0x01};
     trap_opcode = g_hex_opcode;

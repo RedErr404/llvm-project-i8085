@@ -504,6 +504,7 @@ NativeProcessProtocol::GetSoftwareBreakpointTrapOpcode(size_t size_hint) {
   static const uint8_t g_mips64_opcode[] = {0x00, 0x00, 0x00, 0x0d};
   static const uint8_t g_mips64el_opcode[] = {0x0d, 0x00, 0x00, 0x00};
   static const uint8_t g_msp430_opcode[] = {0x43, 0x43};
+  static const uint8_t g_tms9900_opcode[] = {0x00, 0x00}; // undefined opcode
   static const uint8_t g_s390x_opcode[] = {0x00, 0x01};
   static const uint8_t g_ppc_opcode[] = {0x7f, 0xe0, 0x00, 0x08};   // trap
   static const uint8_t g_ppcle_opcode[] = {0x08, 0x00, 0xe0, 0x7f}; // trap
@@ -531,6 +532,9 @@ NativeProcessProtocol::GetSoftwareBreakpointTrapOpcode(size_t size_hint) {
 
   case llvm::Triple::msp430:
     return llvm::ArrayRef(g_msp430_opcode);
+
+  case llvm::Triple::tms9900:
+    return llvm::ArrayRef(g_tms9900_opcode);
 
   case llvm::Triple::systemz:
     return llvm::ArrayRef(g_s390x_opcode);

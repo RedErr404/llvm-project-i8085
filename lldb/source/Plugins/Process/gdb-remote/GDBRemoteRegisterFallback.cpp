@@ -48,6 +48,20 @@ static std::vector<DynamicRegisterInfo::Register> GetRegisters_msp430() {
   return registers;
 }
 
+static std::vector<DynamicRegisterInfo::Register> GetRegisters_tms9900() {
+  ConstString empty_alt_name;
+  ConstString reg_set{"general purpose registers"};
+
+  // R0-R15 workspace registers, then PC, WP, ST
+  std::vector<DynamicRegisterInfo::Register> registers{
+      R16(r0),  R16(r1),  R16(r2),  R16(r3),  R16(r4),  R16(r5),
+      R16(r6),  R16(r7),  R16(r8),  R16(r9),  R16(r10), R16(r11),
+      R16(r12), R16(r13), R16(r14), R16(r15), R16(pc),  R16(wp),
+      R16(st)};
+
+  return registers;
+}
+
 static std::vector<DynamicRegisterInfo::Register> GetRegisters_x86() {
   ConstString empty_alt_name;
   ConstString reg_set{"general purpose registers"};
@@ -86,6 +100,8 @@ GetFallbackRegisters(const ArchSpec &arch_to_use) {
     return GetRegisters_aarch64();
   case llvm::Triple::msp430:
     return GetRegisters_msp430();
+  case llvm::Triple::tms9900:
+    return GetRegisters_tms9900();
   case llvm::Triple::x86:
     return GetRegisters_x86();
   case llvm::Triple::x86_64:
