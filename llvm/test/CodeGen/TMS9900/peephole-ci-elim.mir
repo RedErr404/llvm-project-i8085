@@ -1,0 +1,148 @@
+# RUN: llc -mtriple=tms9900 -run-pass=tms9900-peephole %s -o - | FileCheck %s
+#
+# Extended tests for CI Rx,0 elimination in the peephole pass.
+# The existing peephole.mir covers CI-after-SRL, CI-after-ANDI, CI-after-SOC,
+# CI-with-different-reg, and CI-with-no-branch.  This file adds cases for:
+#   - CI after a store (operand 0 is a memory address, not TestReg)
+#   - CI after inline asm (no ST modification guarantee)
+#   - CI at start of BB (no preceding instruction)
+#   - CI after a MOV load (should be eliminated)
+#   - CI after NEG (should be eliminated)
+
+--- |
+  define i16 @ci_no_elim_store() { ret i16 0 }
+  define i16 @ci_no_elim_inline_asm() { ret i16 0 }
+  define i16 @ci_no_elim_bb_start() { ret i16 0 }
+  define i16 @ci_elim_mov_load() { ret i16 0 }
+  define i16 @ci_elim_neg() { ret i16 0 }
+...
+
+# CI after a store should NOT be eliminated.
+# MOVmi writes to memory via operand 0 (address register); its operand 0
+# is a def of the address register, not the value being tested.
+---
+name: ci_no_elim_store
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r0 = IMPLICIT_DEF
+    renamable $r1 = IMPLICIT_DEF
+    renamable $r5 = IMPLICIT_DEF
+    MOVmi $r0, killed $r1, implicit-def dead $st
+    CI killed $r5, 0, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: ci_no_elim_store
+# The store defines R0 (address), but CI tests R5 — different register.
+# CHECK: MOVmi
+# CHECK: CI
+# CHECK: JEQ
+
+# CI after INLINEASM should NOT be eliminated.
+# Inline asm may or may not modify ST — we cannot know.
+---
+name: ci_no_elim_inline_asm
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r3 = IMPLICIT_DEF
+    INLINEASM &"nop", 1 /* sideeffect */
+    CI killed $r3, 0, implicit-def $st
+    JNE %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: ci_no_elim_inline_asm
+# Inline asm does not guarantee ST modification for R3.
+# CHECK: INLINEASM
+# CHECK: CI
+# CHECK: JNE
+
+# CI at start of BB should NOT be eliminated (no preceding instruction).
+---
+name: ci_no_elim_bb_start
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r2
+    CI killed $r2, 0, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: ci_no_elim_bb_start
+# No preceding instruction, so CI must remain.
+# CHECK: CI
+# CHECK: JEQ
+
+# CI after a MOV load (reg-to-reg) should be eliminated.
+# MOVrr defines Rd and sets ST based on the result.
+---
+name: ci_elim_mov_load
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r0 = IMPLICIT_DEF
+    renamable $r4 = MOVrr killed $r0, implicit-def dead $st
+    CI killed $r4, 0, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: ci_elim_mov_load
+# MOVrr defines R4 and sets ST — CI Rx,0 is redundant.
+# CHECK: MOVrr
+# CHECK-NOT: CI
+# CHECK: JEQ
+
+# CI after NEG should be eliminated.
+# NEG defines Rd and sets status flags.
+---
+name: ci_elim_neg
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r6 = IMPLICIT_DEF
+    renamable $r6 = NEGr killed $r6, implicit-def dead $st
+    CI killed $r6, 0, implicit-def $st
+    JNE %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: ci_elim_neg
+# NEG defines R6 and sets ST — CI is redundant.
+# CHECK: NEGr
+# CHECK-NOT: CI
+# CHECK: JNE

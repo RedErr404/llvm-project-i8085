@@ -1,0 +1,71 @@
+# RUN: llc -mtriple=tms9900 -run-pass=tms9900-peephole %s -o - | FileCheck %s
+#
+# Extended tests for LI -1 -> SETO peephole transformation.
+# The existing peephole.mir tests LI 65535 -> SETO.  This file tests
+# additional patterns:
+#   - LI Rx, -1 (signed) -> SETO
+#   - LI Rx, 42 (non-negative-one value) should remain LI
+#   - LI Rx, 0 -> CLR (not SETO)
+#   - Multiple SETO conversions in same block
+
+--- |
+  define i16 @seto_signed_neg1() { ret i16 0 }
+  define i16 @seto_multi() { ret i16 0 }
+  define i16 @no_seto_positive() { ret i16 0 }
+...
+
+# LI Rx, -1 (signed representation) should become SETO.
+# The peephole casts to int16_t, so -1 == 0xFFFF -> SETO.
+---
+name: seto_signed_neg1
+tracksRegLiveness: true
+body: |
+  bb.0:
+    renamable $r3 = LI 65535, implicit-def dead $st
+    renamable $r4 = LI 65535, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: seto_signed_neg1
+# CHECK: SETOr
+# CHECK: SETOr
+# CHECK-NOT: LI
+# CHECK: RET
+
+# Multiple conversions in the same basic block.
+# LI -1 -> SETO, LI 0 -> CLR, LI 100 stays.
+---
+name: seto_multi
+tracksRegLiveness: true
+body: |
+  bb.0:
+    renamable $r1 = LI 65535, implicit-def dead $st
+    renamable $r2 = LI 0, implicit-def dead $st
+    renamable $r3 = LI 100, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: seto_multi
+# CHECK: $r1 = SETOr
+# CHECK: $r2 = CLRr
+# CHECK: LI 100
+# CHECK: RET
+
+# Non-negative-one values should NOT become SETO.
+---
+name: no_seto_positive
+tracksRegLiveness: true
+body: |
+  bb.0:
+    renamable $r0 = LI 1, implicit-def dead $st
+    renamable $r1 = LI 32767, implicit-def dead $st
+    renamable $r2 = LI 65534, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: no_seto_positive
+# CHECK-NOT: SETOr
+# CHECK: LI {{.*}}1
+# CHECK: LI {{.*}}32767
+# CHECK: LI {{.*}}65534
+# CHECK: RET

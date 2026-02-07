@@ -1,0 +1,72 @@
+# RUN: llc -mtriple=tms9900 -run-pass=tms9900-peephole %s -o - | FileCheck %s
+#
+# Extended tests for MOV Rx,Rx self-move deletion.
+# The existing peephole.mir tests basic self-move elimination.
+# This file adds:
+#   - Multiple self-moves in sequence
+#   - Self-move with live ST (should NOT be deleted)
+#   - Non-self MOV should be kept
+
+--- |
+  define i16 @multi_self_mov() { ret i16 0 }
+  define i16 @self_mov_live_st() { ret i16 0 }
+  define i16 @non_self_mov() { ret i16 0 }
+...
+
+# Multiple consecutive self-moves should all be deleted.
+---
+name: multi_self_mov
+tracksRegLiveness: true
+body: |
+  bb.0:
+    renamable $r1 = IMPLICIT_DEF
+    renamable $r2 = IMPLICIT_DEF
+    $r1 = MOVrr $r1, implicit-def dead $st
+    $r2 = MOVrr $r2, implicit-def dead $st
+    $r1 = MOVrr $r1, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: multi_self_mov
+# All self-moves should be deleted.
+# CHECK-NOT: MOVrr
+# CHECK: RET
+
+# Self-move with live ST should NOT be deleted (it sets flags).
+---
+name: self_mov_live_st
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r3 = IMPLICIT_DEF
+    $r3 = MOVrr $r3, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: self_mov_live_st
+# ST is live (used by JEQ), so MOVrr should be kept.
+# CHECK: MOVrr
+# CHECK: JEQ
+
+# Non-self MOV should always be kept.
+---
+name: non_self_mov
+tracksRegLiveness: true
+body: |
+  bb.0:
+    renamable $r4 = IMPLICIT_DEF
+    renamable $r5 = MOVrr killed $r4, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: non_self_mov
+# R4 -> R5 is not a self-move and must remain.
+# CHECK: MOVrr
+# CHECK: RET
