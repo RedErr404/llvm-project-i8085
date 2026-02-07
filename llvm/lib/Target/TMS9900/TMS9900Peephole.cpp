@@ -11,8 +11,9 @@
 //  - LI 0 -> CLR
 //  - LI -1 -> SETO
 //  - XOR r,r -> CLR
-//  - MOV Rx,Rx (self-move) -> delete
+//  - MOV Rx,Rx (self-move) -> delete (also when ST live and prior set flags)
 //  - CI Rx,0 -> delete when prior instruction already set flags
+//  - ANDI Rx,0xFF00 -> delete when next use of Rx is MOVB source
 //  - Dead first load when consecutive loads define same register
 //  - AI 0 removed when status flags are dead
 //
@@ -282,14 +283,56 @@ public:
           continue;
         }
 
-        // MOV Rx,Rx (self-move) -> delete when ST is dead.
+        // MOV Rx,Rx (self-move) -> delete.
+        // Case 1: ST is dead -- the self-move is a pure no-op.
+        // Case 2: ST is live -- the self-move is used as a zero-test to
+        //   set flags. If the immediately preceding instruction already
+        //   defines Rx as operand 0 AND sets ST, the flags are already
+        //   correct (all TMS9900 ALU ops set EQ/LGT/AGT identically to
+        //   MOV for the same value), so the self-move is redundant.
+        //   Same safety constraints as CI Rx,0 elimination.
         if (Opc == TMS9900::MOVrr) {
           Register Dst = MI.getOperand(0).getReg();
           Register Src = MI.getOperand(1).getReg();
           if (Dst != Src)
             continue;
-          if (!MI.registerDefIsDead(TMS9900::ST, TRI))
+
+          // Case 1: ST dead -- always safe to delete.
+          if (MI.registerDefIsDead(TMS9900::ST, TRI)) {
+            MI.eraseFromParent();
+            Changed = true;
             continue;
+          }
+
+          // Case 2: ST live -- check that the preceding instruction
+          // already set the same flags on Dst.
+          MachineInstr *Prev = MI.getPrevNode();
+          while (Prev && Prev->isDebugInstr())
+            Prev = Prev->getPrevNode();
+          if (!Prev)
+            continue;
+
+          // Safety: skip calls, branches, returns.
+          if (Prev->isCall() || Prev->isBranch() || Prev->isReturn())
+            continue;
+          // Preceding instruction must set ST.
+          if (!Prev->modifiesRegister(TMS9900::ST, TRI))
+            continue;
+          // Operand 0 must be a def of Dst (primary result = flags
+          // reflect Dst's value, not a secondary def).
+          if (Prev->getNumOperands() == 0 ||
+              !Prev->getOperand(0).isReg() ||
+              !Prev->getOperand(0).isDef() ||
+              Prev->getOperand(0).getReg() != Dst)
+            continue;
+
+          // The preceding instruction's ST def is no longer dead --
+          // the consumer(s) of ST now read it directly from Prev.
+          if (int STIdx = Prev->findRegisterDefOperandIdx(TMS9900::ST,
+                                                          /*isDead=*/true);
+              STIdx != -1) {
+            Prev->getOperand(STIdx).setIsDead(false);
+          }
 
           MI.eraseFromParent();
           Changed = true;
@@ -365,6 +408,73 @@ public:
               STIdx != -1) {
             Prev->getOperand(STIdx).setIsDead(false);
           }
+
+          MI.eraseFromParent();
+          Changed = true;
+          continue;
+        }
+
+        // ANDI Rx,0xFF00 -> delete when the next use of Rx is a MOVB
+        // that reads Rx as its source operand, and Rx is killed there.
+        //
+        // Pattern: MOVB src,Rx  (loads byte into high byte of Rx)
+        //          ANDI Rx,0xFF00  (zeros low byte -- 4 bytes, 24 cycles)
+        //          MOVB Rx,dst  (stores high byte of Rx)
+        //
+        // Since MOVB only sends the high byte, and ANDI 0xFF00 only
+        // affects the low byte, the ANDI is redundant when the next
+        // consumer only cares about the high byte (MOVB source) and
+        // Rx is killed (no later reader sees the low byte).
+        if (Opc == TMS9900::ANDI) {
+          if (!MI.getOperand(2).isImm())
+            continue;
+          uint16_t Mask =
+              static_cast<uint16_t>(MI.getOperand(2).getImm());
+          if (Mask != 0xFF00)
+            continue;
+
+          Register Rx = MI.getOperand(0).getReg();
+
+          // Find the next non-debug instruction.
+          MachineInstr *Next = MI.getNextNode();
+          while (Next && Next->isDebugInstr())
+            Next = Next->getNextNode();
+          if (!Next)
+            continue;
+
+          // The next instruction must be a MOVB store/move that reads
+          // Rx as its source (high byte) and kills Rx.
+          unsigned NextOpc = Next->getOpcode();
+          int SrcOpIdx = -1;
+          switch (NextOpc) {
+          default:
+            continue;
+          case TMS9900::MOVBmi:  // MOVB Rs,*Rd -- src is operand 1
+          case TMS9900::MOVBma:  // MOVB Rs,@addr -- src is operand 1
+          case TMS9900::MOVBrr:  // MOVB Rs,Rd -- src is operand 1
+            SrcOpIdx = 1;
+            break;
+          case TMS9900::MOVBmx:  // MOVB Rs,@off(Ri) -- src is operand 2
+            SrcOpIdx = 2;
+            break;
+          }
+
+          if (SrcOpIdx < 0 ||
+              SrcOpIdx >= (int)Next->getNumOperands() ||
+              !Next->getOperand(SrcOpIdx).isReg() ||
+              Next->getOperand(SrcOpIdx).getReg() != Rx)
+            continue;
+
+          // Rx must be killed by the MOVB (no later reader of the low
+          // byte) -- or at least no other operand of Next reads Rx.
+          if (!Next->getOperand(SrcOpIdx).isKill())
+            continue;
+
+          // Safe to delete.  Propagate liveness: the ANDI's source
+          // operand (operand 1, the tied input) carries the kill flag
+          // for Rx from before ANDI.  Transfer that to the MOVB source.
+          bool WasKill = MI.getOperand(1).isKill();
+          Next->getOperand(SrcOpIdx).setIsKill(WasKill);
 
           MI.eraseFromParent();
           Changed = true;

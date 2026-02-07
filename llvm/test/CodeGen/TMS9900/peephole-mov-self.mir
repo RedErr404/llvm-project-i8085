@@ -4,12 +4,16 @@
 # The existing peephole.mir tests basic self-move elimination.
 # This file adds:
 #   - Multiple self-moves in sequence
-#   - Self-move with live ST (should NOT be deleted)
+#   - Self-move with live ST and no prior flag-setter (should NOT be deleted)
+#   - Self-move with live ST and prior flag-setter (SHOULD be deleted)
 #   - Non-self MOV should be kept
 
 --- |
   define i16 @multi_self_mov() { ret i16 0 }
   define i16 @self_mov_live_st() { ret i16 0 }
+  define i16 @self_mov_live_st_prior_flags() { ret i16 0 }
+  define i16 @self_mov_live_st_xor() { ret i16 0 }
+  define i16 @self_mov_live_st_no_st_setter() { ret i16 0 }
   define i16 @non_self_mov() { ret i16 0 }
 ...
 
@@ -51,8 +55,82 @@ body: |
 ...
 
 # CHECK-LABEL: name: self_mov_live_st
-# ST is live (used by JEQ), so MOVrr should be kept.
+# ST is live (used by JEQ) and preceding IMPLICIT_DEF does NOT set ST,
+# so MOVrr must be kept.
 # CHECK: MOVrr
+# CHECK: JEQ
+
+# Self-move with live ST, preceded by DEC which sets flags on same reg.
+# The DEC already set EQ/LGT/AGT correctly, so the self-MOV is redundant.
+---
+name: self_mov_live_st_prior_flags
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r3
+    $r3 = DECr $r3, implicit-def dead $st
+    $r3 = MOVrr $r3, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: self_mov_live_st_prior_flags
+# DEC sets flags on R3, so MOVrr R3,R3 is redundant.
+# CHECK: DECr
+# CHECK-NOT: MOVrr
+# CHECK: JEQ
+
+# Self-move with live ST, preceded by XOR which sets flags on same reg.
+---
+name: self_mov_live_st_xor
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r3, $r4
+    $r3 = XORrr $r3, killed $r4, implicit-def dead $st
+    $r3 = MOVrr $r3, implicit-def $st
+    $r4 = MOVrr $r3, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: self_mov_live_st_xor
+# XOR sets flags on R3, so MOVrr R3,R3 is redundant.
+# CHECK: XORrr
+# CHECK-NOT: $r3 = MOVrr $r3
+# CHECK: $r4 = MOVrr $r3
+# CHECK: RET
+
+# Self-move with live ST, preceded by MOV from different reg (no flags on Dst).
+---
+name: self_mov_live_st_no_st_setter
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r3, $r5
+    $r3 = MOVrr $r5, implicit-def dead $st
+    $r3 = MOVrr $r3, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: self_mov_live_st_no_st_setter
+# Preceding MOV R5->R3 sets flags based on R5 value, which equals R3's
+# new value. Operand 0 IS R3 and it IS a def. Prior does set ST.
+# So the self-MOV IS redundant and should be deleted.
+# CHECK: $r3 = MOVrr $r5
+# CHECK-NOT: $r3 = MOVrr $r3
 # CHECK: JEQ
 
 # Non-self MOV should always be kept.

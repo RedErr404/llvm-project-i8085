@@ -1,0 +1,64 @@
+# RUN: llc -mtriple=tms9900 -run-pass=tms9900-peephole %s -o - | FileCheck %s
+#
+# Tests for ANDI Rx,0xFF00 elimination when followed by MOVB store.
+# MOVB only sends the high byte, so zeroing the low byte with ANDI is
+# redundant when Rx is killed by the MOVB.
+
+--- |
+  define void @andi_ff00_before_movb_mi() { ret void }
+  define void @andi_ff00_before_movb_mi_not_killed() { ret void }
+  define void @andi_not_ff00() { ret void }
+...
+
+# ANDI R5,0xFF00 followed by MOVB R5,*R6 with R5 killed -> delete ANDI.
+---
+name: andi_ff00_before_movb_mi
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r5, $r6
+    $r5 = ANDI killed $r5(tied-def 0), -256, implicit-def dead $st
+    MOVBmi killed $r6, killed $r5, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: andi_ff00_before_movb_mi
+# ANDI should be deleted; MOVB only uses the high byte and R5 is killed.
+# CHECK-NOT: ANDI
+# CHECK: MOVBmi
+# CHECK: RET
+
+# ANDI R5,0xFF00 followed by MOVB R5,*R6 but R5 NOT killed -> keep ANDI.
+---
+name: andi_ff00_before_movb_mi_not_killed
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r5, $r6
+    $r5 = ANDI $r5(tied-def 0), -256, implicit-def dead $st
+    MOVBmi $r6, $r5, implicit-def dead $st
+    $r0 = MOVrr killed $r5, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: andi_ff00_before_movb_mi_not_killed
+# R5 is not killed by MOVB, so ANDI must be kept (later reader may see low byte).
+# CHECK: ANDI
+# CHECK: MOVBmi
+
+# ANDI with mask != 0xFF00 should not be deleted.
+---
+name: andi_not_ff00
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r5, $r6
+    $r5 = ANDI killed $r5(tied-def 0), 15, implicit-def dead $st
+    MOVBmi killed $r6, killed $r5, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: andi_not_ff00
+# Mask is 0x000F, not 0xFF00 -- keep the ANDI.
+# CHECK: ANDI
+# CHECK: MOVBmi
