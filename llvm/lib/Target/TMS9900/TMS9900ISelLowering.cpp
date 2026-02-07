@@ -59,6 +59,11 @@ TMS9900TargetLowering::TMS9900TargetLowering(const TargetMachine &TM,
   setLoadExtAction(ISD::SEXTLOAD, MVT::i16, MVT::i8, Custom);
   setLoadExtAction(ISD::EXTLOAD, MVT::i16, MVT::i8, Custom);
 
+  // i1 loads need to promote to i8 (then custom-lowered to i16)
+  setLoadExtAction(ISD::ZEXTLOAD, MVT::i16, MVT::i1, Promote);
+  setLoadExtAction(ISD::SEXTLOAD, MVT::i16, MVT::i1, Promote);
+  setLoadExtAction(ISD::EXTLOAD, MVT::i16, MVT::i1, Promote);
+
   // Also mark i8 operations as needing promotion to i16, which will then
   // go through our truncating store lowering
   setOperationAction(ISD::STORE, MVT::i8, Promote);
