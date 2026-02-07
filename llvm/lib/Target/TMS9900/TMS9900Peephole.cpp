@@ -9,7 +9,11 @@
 // Simple post-isel peephole optimizations:
 //  - AI +/-1/2 -> INC/DEC/INCT/DECT
 //  - LI 0 -> CLR
+//  - LI -1 -> SETO
 //  - XOR r,r -> CLR
+//  - MOV Rx,Rx (self-move) -> delete
+//  - CI Rx,0 -> delete when prior instruction already set flags
+//  - Dead first load when consecutive loads define same register
 //  - AI 0 removed when status flags are dead
 //
 //===----------------------------------------------------------------------===//
@@ -151,6 +155,28 @@ public:
           continue;
         }
 
+        // Redundant load elimination: if two consecutive instructions both
+        // define the same register and the first value is never read, delete
+        // the first instruction.  This runs early, before opcode-specific
+        // transforms (e.g. LI->CLR) that would skip non-matching immediates.
+        if (Opc == TMS9900::MOVam || Opc == TMS9900::MOVxm ||
+            Opc == TMS9900::MOVim || Opc == TMS9900::MOV_FI_Load ||
+            Opc == TMS9900::LI) {
+          MachineInstr *Next = MI.getNextNode();
+          while (Next && Next->isDebugInstr())
+            Next = Next->getNextNode();
+          if (Next) {
+            Register DefReg = MI.getOperand(0).getReg();
+            if (Next->modifiesRegister(DefReg, TRI) &&
+                !Next->readsRegister(DefReg, TRI) &&
+                MI.registerDefIsDead(TMS9900::ST, TRI)) {
+              MI.eraseFromParent();
+              Changed = true;
+              continue;
+            }
+          }
+        }
+
         if (Opc == TMS9900::AI) {
           if (!MI.getOperand(2).isImm())
             continue;
@@ -205,14 +231,20 @@ public:
             continue;
           int64_t Imm = MI.getOperand(1).getImm();
           int16_t Imm16 = static_cast<int16_t>(Imm);
-          if (Imm16 != 0)
+
+          unsigned NewOpc;
+          if (Imm16 == 0)
+            NewOpc = TMS9900::CLRr;
+          else if (Imm16 == -1)
+            NewOpc = TMS9900::SETOr;
+          else
             continue;
 
           Register Reg = MI.getOperand(0).getReg();
           bool DeadDef = MI.getOperand(0).isDead();
           DebugLoc DL = MI.getDebugLoc();
           MachineInstrBuilder MIB =
-              BuildMI(MBB, MI, DL, TII->get(TMS9900::CLRr));
+              BuildMI(MBB, MI, DL, TII->get(NewOpc));
           MIB.addReg(Reg, RegState::Define | (DeadDef ? RegState::Dead : 0));
 
           if (int STIdx = MIB->findRegisterDefOperandIdx(TMS9900::ST, true);
@@ -247,7 +279,98 @@ public:
 
           MI.eraseFromParent();
           Changed = true;
+          continue;
         }
+
+        // MOV Rx,Rx (self-move) -> delete when ST is dead.
+        if (Opc == TMS9900::MOVrr) {
+          Register Dst = MI.getOperand(0).getReg();
+          Register Src = MI.getOperand(1).getReg();
+          if (Dst != Src)
+            continue;
+          if (!MI.registerDefIsDead(TMS9900::ST, TRI))
+            continue;
+
+          MI.eraseFromParent();
+          Changed = true;
+          continue;
+        }
+
+        // CI Rx,0 -> delete when prior instruction already set flags for Rx.
+        // TMS9900 ALU instructions (MOV, A, S, SOC, SZC, XOR, INC, DEC,
+        // SLA, SRA, SRL, ANDI, ORI, INV, NEG, ABS, CLR) all set status
+        // bits EQ, LGT, AGT based on the result value -- the same way CI
+        // Rx,0 does. So if the immediately preceding instruction already
+        // computed the value into TestReg AND set ST, the CI is redundant.
+        //
+        // Safety constraints:
+        // 1. Only the immediately preceding instruction (no backward walk)
+        // 2. Operand 0 must be the def of TestReg (ensures flags reflect
+        //    TestReg, not a secondary def like a pointer in auto-increment)
+        // 3. The preceding instruction must set ST
+        // 4. The next instruction must be a conditional branch that only
+        //    tests EQ/LGT/AGT flags (all TMS9900 conditional jumps do)
+        if (Opc == TMS9900::CI) {
+          if (!MI.getOperand(1).isImm() ||
+              static_cast<int16_t>(MI.getOperand(1).getImm()) != 0)
+            continue;
+
+          Register TestReg = MI.getOperand(0).getReg();
+
+          // Get the immediately preceding non-debug instruction.
+          MachineInstr *Prev = MI.getPrevNode();
+          while (Prev && Prev->isDebugInstr())
+            Prev = Prev->getPrevNode();
+          if (!Prev)
+            continue;
+
+          // The preceding instruction must:
+          // - Define TestReg as its primary result (operand 0, isDef)
+          // - Set ST (which all TMS9900 ALU instructions do)
+          // - Not be a call, branch, or other non-ALU instruction
+          if (Prev->isCall() || Prev->isBranch() || Prev->isReturn())
+            continue;
+          if (!Prev->modifiesRegister(TMS9900::ST, TRI))
+            continue;
+
+          // Check that operand 0 is a def of TestReg. This ensures the
+          // flags reflect TestReg's value (not a secondary def like a
+          // pointer update in auto-increment instructions).
+          if (Prev->getNumOperands() == 0 ||
+              !Prev->getOperand(0).isReg() ||
+              !Prev->getOperand(0).isDef() ||
+              Prev->getOperand(0).getReg() != TestReg)
+            continue;
+
+          // Verify the next instruction is a conditional branch.
+          // All TMS9900 conditional branches (JEQ, JNE, JGT, JLT, JH,
+          // JHE, JL, JLE) test only EQ/LGT/AGT flags, which CI Rx,0
+          // and ALU instructions set identically.
+          MachineInstr *Next = MI.getNextNode();
+          while (Next && Next->isDebugInstr())
+            Next = Next->getNextNode();
+          if (!Next)
+            continue;
+          unsigned NextOpc = Next->getOpcode();
+          if (NextOpc != TMS9900::JEQ && NextOpc != TMS9900::JNE &&
+              NextOpc != TMS9900::JGT && NextOpc != TMS9900::JLT &&
+              NextOpc != TMS9900::JH && NextOpc != TMS9900::JHE &&
+              NextOpc != TMS9900::JL && NextOpc != TMS9900::JLE)
+            continue;
+
+          // Update ST liveness: the preceding instruction's ST def is
+          // no longer dead since the branch now reads it directly.
+          if (int STIdx = Prev->findRegisterDefOperandIdx(TMS9900::ST,
+                                                          /*isDead=*/true);
+              STIdx != -1) {
+            Prev->getOperand(STIdx).setIsDead(false);
+          }
+
+          MI.eraseFromParent();
+          Changed = true;
+          continue;
+        }
+
       }
     }
 

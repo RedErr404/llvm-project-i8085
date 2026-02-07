@@ -1,10 +1,18 @@
 # RUN: llc -mtriple=tms9900 -run-pass=tms9900-peephole %s -o - | FileCheck %s
 
 --- |
-  define i16 @peephole() {
-    ret i16 0
-  }
+  define i16 @peephole() { ret i16 0 }
+  define i16 @li_seto() { ret i16 0 }
+  define i16 @mov_self_delete() { ret i16 0 }
+  define i16 @ci_elim_srl() { ret i16 0 }
+  define i16 @ci_elim_andi() { ret i16 0 }
+  define i16 @ci_elim_soc() { ret i16 0 }
+  define i16 @ci_no_elim_diff_reg() { ret i16 0 }
+  define i16 @ci_no_elim_no_branch() { ret i16 0 }
+  define i16 @redundant_load() { ret i16 0 }
 ...
+
+# AI folding: AI +/-1/2 -> INC/DEC/INCT/DECT, AI 0 -> delete
 ---
 name: peephole
 tracksRegLiveness: true
@@ -34,3 +42,175 @@ body: |
 # CHECK-NOT: AI
 # CHECK: CLRr
 # CHECK: CLRr
+
+# LI -1 -> SETO
+---
+name: li_seto
+tracksRegLiveness: true
+body: |
+  bb.0:
+    renamable $r1 = LI 65535, implicit-def dead $st
+    renamable $r2 = LI 42, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: li_seto
+# CHECK: SETOr
+# CHECK-NOT: LI{{.*}}65535
+# CHECK: LI{{.*}}42
+
+# MOV Rx,Rx self-move deletion (only when ST dead)
+---
+name: mov_self_delete
+tracksRegLiveness: true
+body: |
+  bb.0:
+    renamable $r1 = IMPLICIT_DEF
+    renamable $r2 = IMPLICIT_DEF
+    $r1 = MOVrr $r1, implicit-def dead $st
+    $r2 = MOVrr $r1, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: mov_self_delete
+# Self-move r1->r1 should be deleted:
+# CHECK-NOT: MOVrr{{.*}}$r1, {{.*}}$r1
+# Non-self MOV r1->r2 should remain:
+# CHECK: MOVrr
+
+# CI Rx,0 elimination after SRL
+---
+name: ci_elim_srl
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r5 = IMPLICIT_DEF
+    renamable $r5 = SRLri killed $r5, 8, implicit-def dead $st
+    CI killed $r5, 0, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: ci_elim_srl
+# CHECK: SRLri
+# CI should be eliminated - SRL already set flags on R5:
+# CHECK-NOT: CI
+# CHECK: JEQ
+
+# CI Rx,0 elimination after ANDI
+---
+name: ci_elim_andi
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r3 = IMPLICIT_DEF
+    renamable $r3 = ANDI killed $r3, 15, implicit-def dead $st
+    CI killed $r3, 0, implicit-def $st
+    JNE %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: ci_elim_andi
+# CHECK: ANDI
+# CI should be eliminated - ANDI already set flags on R3:
+# CHECK-NOT: CI
+# CHECK: JNE
+
+# CI Rx,0 elimination after SOC (OR)
+---
+name: ci_elim_soc
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r0 = IMPLICIT_DEF
+    renamable $r1 = IMPLICIT_DEF
+    renamable $r0 = SOCrr killed $r0, killed $r1, implicit-def dead $st
+    CI killed $r0, 0, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: ci_elim_soc
+# CHECK: SOCrr
+# CI should be eliminated - SOC already set flags on R0:
+# CHECK-NOT: CI
+# CHECK: JEQ
+
+# CI Rx,0 NOT eliminated when preceding instruction defines different register
+---
+name: ci_no_elim_diff_reg
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r0 = IMPLICIT_DEF
+    renamable $r1 = IMPLICIT_DEF
+    renamable $r0 = SRLri killed $r0, 8, implicit-def dead $st
+    CI killed $r1, 0, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: ci_no_elim_diff_reg
+# CI should NOT be eliminated - SRL set flags on R0, but CI tests R1:
+# CHECK: SRLri
+# CHECK: CI
+# CHECK: JEQ
+
+# CI Rx,0 NOT eliminated when next instruction is not a conditional branch
+---
+name: ci_no_elim_no_branch
+tracksRegLiveness: true
+body: |
+  bb.0:
+    renamable $r5 = IMPLICIT_DEF
+    renamable $r5 = SRLri killed $r5, 8, implicit-def dead $st
+    CI killed $r5, 0, implicit-def $st
+    RET
+...
+
+# CHECK-LABEL: name: ci_no_elim_no_branch
+# CI should NOT be eliminated - next instruction is RET, not a branch:
+# CHECK: SRLri
+# CHECK: CI
+# CHECK: RET
+
+# Redundant load elimination
+---
+name: redundant_load
+tracksRegLiveness: true
+body: |
+  bb.0:
+    renamable $r0 = IMPLICIT_DEF
+    renamable $r3 = LI 100, implicit-def dead $st
+    renamable $r3 = LI 200, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: redundant_load
+# First LI should be eliminated since R3 is immediately redefined:
+# CHECK-NOT: LI{{.*}}100
+# CHECK: LI{{.*}}200
