@@ -60,7 +60,12 @@ enum NodeType : unsigned {
   /// BYTE_LOAD - Load byte into HIGH byte position of register
   /// TMS9900 MOVB loads into HIGH byte. Takes (chain, ptr).
   /// Returns value with byte in HIGH position, plus chain.
-  BYTE_LOAD
+  BYTE_LOAD,
+
+  /// TAIL_CALL - Tail call to a function.
+  /// Used for tail call optimization where the callee returns directly
+  /// to our caller. Emitted as B @callee instead of BL @callee.
+  TAIL_CALL
 };
 } // end namespace TMS9900ISD
 
@@ -124,13 +129,9 @@ public:
 
   //===--------------------------------------------------------------------===//
   // Tail Call Optimization
-  // TMS9900 currently does not support tail call optimization due to
-  // the complexity of properly managing R11 (link register) and the stack.
   //===--------------------------------------------------------------------===//
 
-  bool mayBeEmittedAsTailCall(const CallInst *CI) const override {
-    return false;  // Disable tail call optimization
-  }
+  bool mayBeEmittedAsTailCall(const CallInst *CI) const override;
 
   /// getConstraintType - Given a constraint letter, return the type of
   /// constraint it is for this target.
@@ -158,6 +159,10 @@ private:
 
   SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;
+
+  bool isEligibleForTailCallOptimization(
+      CCState &CCInfo, CallLoweringInfo &CLI, MachineFunction &MF,
+      const SmallVector<CCValAssign, 16> &ArgLocs) const;
 
   SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerJumpTable(SDValue Op, SelectionDAG &DAG) const;

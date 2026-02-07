@@ -285,6 +285,8 @@ const char *TMS9900TargetLowering::getTargetNodeName(unsigned Opcode) const {
     return "TMS9900ISD::BYTE_STORE";
   case TMS9900ISD::BYTE_LOAD:
     return "TMS9900ISD::BYTE_LOAD";
+  case TMS9900ISD::TAIL_CALL:
+    return "TMS9900ISD::TAIL_CALL";
   }
   return nullptr;
 }
@@ -1731,17 +1733,80 @@ SDValue TMS9900TargetLowering::LowerReturn(
 }
 
 //===----------------------------------------------------------------------===//
+//                        Tail Call Optimization
+//===----------------------------------------------------------------------===//
+
+bool TMS9900TargetLowering::mayBeEmittedAsTailCall(const CallInst *CI) const {
+  return CI->isTailCall();
+}
+
+/// isEligibleForTailCallOptimization - Check whether the call is eligible
+/// for tail call optimization.
+///
+/// Criteria for TMS9900 tail call optimization:
+/// - No stack arguments (all args must fit in R0-R3)
+/// - No byval arguments
+/// - No struct return (sret)
+/// - Caller is not an interrupt handler
+/// - Caller is not a varargs function
+/// - Calling conventions must be compatible
+bool TMS9900TargetLowering::isEligibleForTailCallOptimization(
+    CCState &CCInfo, CallLoweringInfo &CLI, MachineFunction &MF,
+    const SmallVector<CCValAssign, 16> &ArgLocs) const {
+
+  auto &Caller = MF.getFunction();
+
+  // Interrupt handlers cannot use tail calls (they use RTWP to return)
+  if (Caller.hasFnAttribute("interrupt"))
+    return false;
+
+  // Naked functions cannot use tail calls (no prologue/epilogue)
+  if (Caller.hasFnAttribute(Attribute::Naked))
+    return false;
+
+  // Do not tail call if the callee requires stack arguments.
+  // TMS9900 passes first 4 args in R0-R3; if we need more, stack is required.
+  if (CCInfo.getStackSize() != 0)
+    return false;
+
+  // Do not tail call if caller is a varargs function.
+  // Varargs functions have complex stack layouts we don't want to disturb.
+  if (CLI.IsVarArg)
+    return false;
+
+  // Do not tail call opt if either caller or callee uses struct return.
+  auto IsCallerStructRet = Caller.hasStructRetAttr();
+  auto IsCalleeStructRet = CLI.Outs.empty() ? false : CLI.Outs[0].Flags.isSRet();
+  if (IsCallerStructRet || IsCalleeStructRet)
+    return false;
+
+  // Check that no arguments are passed by value.
+  for (auto &Arg : CLI.Outs)
+    if (Arg.Flags.isByVal())
+      return false;
+
+  // The callee must use the same calling convention as the caller,
+  // or at minimum preserve the same registers.
+  auto CallerCC = Caller.getCallingConv();
+  auto CalleeCC = CLI.CallConv;
+  if (CallerCC != CalleeCC) {
+    const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
+    const uint32_t *CallerPreserved = TRI->getCallPreservedMask(MF, CallerCC);
+    const uint32_t *CalleePreserved = TRI->getCallPreservedMask(MF, CalleeCC);
+    if (!TRI->regmaskSubsetEqual(CallerPreserved, CalleePreserved))
+      return false;
+  }
+
+  return true;
+}
+
+//===----------------------------------------------------------------------===//
 //                           Call Lowering
 //===----------------------------------------------------------------------===//
 
 SDValue TMS9900TargetLowering::LowerCall(
     TargetLowering::CallLoweringInfo &CLI,
     SmallVectorImpl<SDValue> &InVals) const {
-
-  // TMS9900 does not support tail call optimization - the complexity of
-  // managing R11 (link register) and stack frames makes it error-prone.
-  // Force all calls to be regular calls, not tail calls.
-  CLI.IsTailCall = false;
 
   SelectionDAG &DAG = CLI.DAG;
   SDLoc &DL = CLI.DL;
@@ -1750,6 +1815,7 @@ SDValue TMS9900TargetLowering::LowerCall(
   SmallVectorImpl<ISD::InputArg> &Ins = CLI.Ins;
   SDValue Chain = CLI.Chain;
   SDValue Callee = CLI.Callee;
+  bool &IsTailCall = CLI.IsTailCall;
   CallingConv::ID CallConv = CLI.CallConv;
   bool isVarArg = CLI.IsVarArg;
 
@@ -1760,12 +1826,23 @@ SDValue TMS9900TargetLowering::LowerCall(
   CCState CCInfo(CallConv, isVarArg, MF, ArgLocs, *DAG.getContext());
   CCInfo.AnalyzeCallOperands(Outs, CC_TMS9900);
 
+  // Check if tail call optimization is possible.
+  if (IsTailCall)
+    IsTailCall = isEligibleForTailCallOptimization(CCInfo, CLI, MF, ArgLocs);
+
+  if (IsTailCall && CLI.CB && CLI.CB->isMustTailCall())
+    if (!IsTailCall)
+      report_fatal_error("failed to perform tail call elimination on a call "
+                         "site marked musttail");
+
   // Get the size of the outgoing arguments area
   unsigned NumBytes = CCInfo.getStackSize();
 
-  // Emit CALLSEQ_START to mark the beginning of the call sequence
-  // This will be lowered to stack pointer adjustment
-  Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, DL);
+  // For non-tail calls, emit CALLSEQ_START to mark the beginning of the
+  // call sequence. Tail calls don't need this since they reuse the caller's
+  // stack frame.
+  if (!IsTailCall)
+    Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, DL);
 
   // Build a sequence of copy-to-reg nodes chained together
   SDValue InGlue;
@@ -1782,6 +1859,8 @@ SDValue TMS9900TargetLowering::LowerCall(
     } else {
       // Stack argument
       assert(VA.isMemLoc());
+      assert(!IsTailCall && "Tail call not allowed if stack is used "
+                            "for passing parameters");
 
       // Get the stack pointer if we haven't already
       if (!StackPtr.getNode())
@@ -1823,15 +1902,25 @@ SDValue TMS9900TargetLowering::LowerCall(
   for (auto &Reg : RegsToPass)
     Ops.push_back(DAG.getRegister(Reg.first, Reg.second.getValueType()));
 
-  // Add a register mask for call-clobbered registers
-  const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
-  const uint32_t *Mask = TRI->getCallPreservedMask(MF, CallConv);
-  Ops.push_back(DAG.getRegisterMask(Mask));
+  // For non-tail calls, add a register mask for call-clobbered registers.
+  // Tail calls don't need this because the callee returns to our caller
+  // directly (we're done executing at this point).
+  if (!IsTailCall) {
+    const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
+    const uint32_t *Mask = TRI->getCallPreservedMask(MF, CallConv);
+    Ops.push_back(DAG.getRegisterMask(Mask));
+  }
 
   if (InGlue.getNode())
     Ops.push_back(InGlue);
 
   SDVTList NodeTys = DAG.getVTList(MVT::Other, MVT::Glue);
+
+  if (IsTailCall) {
+    MF.getFrameInfo().setHasTailCall();
+    return DAG.getNode(TMS9900ISD::TAIL_CALL, DL, NodeTys, Ops);
+  }
+
   Chain = DAG.getNode(TMS9900ISD::CALL, DL, NodeTys, Ops);
   InGlue = Chain.getValue(1);
 

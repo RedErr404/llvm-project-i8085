@@ -541,15 +541,37 @@ bool TMS9900InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     BuildMI(MBB, MI, DL, get(TMS9900::RET_REAL));
     MBB.erase(MI);
     return true;
+  case TMS9900::TCRETURN:
+  case TMS9900::TCRETURN_ext: {
+    // Expand TCRETURN/TCRETURN_ext pseudo to B @target (tail call)
+    // Uses TAIL_B instruction which takes a calltarget operand.
+    MachineOperand &Target = MI.getOperand(0);
+    BuildMI(MBB, MI, DL, get(TMS9900::TAIL_B))
+        .add(Target);
+    MBB.erase(MI);
+    return true;
+  }
+  case TMS9900::TCRETURN_ind: {
+    // Expand TCRETURN_ind pseudo to B *Rx (branch indirect through register)
+    Register TargetReg = MI.getOperand(0).getReg();
+    BuildMI(MBB, MI, DL, get(TMS9900::Br))
+        .addReg(TargetReg);
+    MBB.erase(MI);
+    return true;
+  }
   case TMS9900::ANDrr: {
     // Expand ANDrr pseudo to INV+SZC+INV sequence
     // AND rd, rs2 becomes:
     //   INV rs2      ; rs2 = NOT rs2
     //   SZC rs2, rd  ; rd = rd AND (NOT rs2) = rd AND (NOT (NOT original_rs2)) = rd AND original_rs2
-    //   INV rs2      ; restore rs2 (skipped if rs2 is dead)
+    //   INV rs2      ; restore rs2 (skipped if rs2 is killed here)
     Register DstReg = MI.getOperand(0).getReg();
     Register SrcReg = MI.getOperand(2).getReg();
-    bool SrcIsDead = MI.getOperand(2).isDead();
+    // Use isKill() not isDead(): operand 2 is a use, not a def.
+    // isKill() indicates the source register's last use is this instruction,
+    // meaning no restore INV is needed. isDead() is for def operands only
+    // and would always return false here.
+    bool SrcIsKilled = MI.getOperand(2).isKill();
 
     // INV rs2
     BuildMI(MBB, MI, DL, get(TMS9900::INVr), SrcReg)
@@ -558,8 +580,8 @@ bool TMS9900InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     BuildMI(MBB, MI, DL, get(TMS9900::SZCrr), DstReg)
         .addReg(DstReg)
         .addReg(SrcReg);
-    // INV rs2 (restore) — only needed if rs2 is still live
-    if (!SrcIsDead) {
+    // INV rs2 (restore) — only needed if rs2 is still live after this AND
+    if (!SrcIsKilled) {
       BuildMI(MBB, MI, DL, get(TMS9900::INVr), SrcReg)
           .addReg(SrcReg);
     }

@@ -27,12 +27,9 @@ TMS9900ToolChain::TMS9900ToolChain(const Driver &D, const llvm::Triple &Triple,
 void TMS9900ToolChain::addClangTargetOptions(const ArgList &DriverArgs,
                                              ArgStringList &CC1Args,
                                              Action::OffloadKind) const {
-  // TMS9900 cannot support tail call optimization safely because almost all
-  // instructions (including MOV) set the status register. This causes issues
-  // when LLVM's tail recursion elimination creates loops with phi-node copies
-  // that get placed between compare and branch instructions, clobbering the
-  // status flags. Disable tail call optimization unless the user explicitly
-  // enables it.
-  if (!DriverArgs.hasArg(options::OPT_foptimize_sibling_calls))
-    CC1Args.push_back("-fno-optimize-sibling-calls");
+  // Tail call optimization is safe on TMS9900. Although most instructions
+  // set the status register, the CMPBR pseudo instruction fuses compare and
+  // branch into a single unit that is only expanded after register allocation
+  // and phi elimination, so phi-node copies cannot be inserted between compare
+  // and branch instructions.
 }

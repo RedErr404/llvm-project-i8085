@@ -40,6 +40,10 @@ def TMS9900reti : SDNode<"TMS9900ISD::RETI", SDT_TMS9900Ret,
 def TMS9900call : SDNode<"TMS9900ISD::CALL", SDT_TMS9900Call,
                          [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue, SDNPVariadic]>;
 
+def TMS9900tailcall : SDNode<"TMS9900ISD::TAIL_CALL", SDT_TMS9900Call,
+                             [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
+                              SDNPVariadic]>;
+
 // Call sequence markers - used for stack adjustment around calls
 def TMS9900callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_TMS9900CallSeqStart,
                                    [SDNPHasChain, SDNPOutGlue]>;
@@ -238,6 +242,35 @@ def RET : Pseudo<(outs), (ins), "# RET", [(TMS9900ret)]> {
   let isTerminator = 1;
   let isBarrier = 1;
 }
+
+} // isPseudo = 1, isCodeGenOnly = 1
+
+// Tail call pseudo instructions
+// These are used for tail call optimization where we branch directly to the
+// callee instead of using BL (which saves the return address).
+// The callee will return directly to our caller via the existing R11.
+let isCodeGenOnly = 1, isPseudo = 1 in {
+
+// TCRETURN with symbolic address - tail call to a global function
+let isCall = 1, isReturn = 1, isTerminator = 1, isBarrier = 1,
+    Uses = [R10] in
+def TCRETURN : Pseudo<(outs), (ins calltarget:$dst),
+                       "# TCRETURN $dst",
+                       [(TMS9900tailcall tglobaladdr:$dst)]>;
+
+// TCRETURN with external symbol
+let isCall = 1, isReturn = 1, isTerminator = 1, isBarrier = 1,
+    Uses = [R10] in
+def TCRETURN_ext : Pseudo<(outs), (ins calltarget:$dst),
+                           "# TCRETURN $dst",
+                           [(TMS9900tailcall texternalsym:$dst)]>;
+
+// TCRETURN with indirect register - tail call to a function pointer
+let isCall = 1, isReturn = 1, isTerminator = 1, isBarrier = 1,
+    Uses = [R10] in
+def TCRETURN_ind : Pseudo<(outs), (ins GR16:$dst),
+                           "# TCRETURN *$dst",
+                           [(TMS9900tailcall GR16:$dst)]>;
 
 } // isPseudo = 1, isCodeGenOnly = 1
 
@@ -1498,6 +1531,24 @@ def B_sym : TMS9900Inst<(outs), (ins brtarget16:$target),
   // Second word: target address
   let Inst{31-16} = target;
   let Size = 4;
+}
+
+// B with calltarget (for tail call optimization)
+// Same encoding as B_sym but takes a calltarget operand (function address)
+// instead of brtarget16 (basic block label).
+let isCall = 1, isReturn = 1, isTerminator = 1, isBarrier = 1 in
+def TAIL_B : TMS9900Inst<(outs), (ins calltarget:$target),
+                         "B\t@$target",
+                         []> {
+  bits<16> target;
+  bits<32> Inst;
+  let Inst{15-6} = 0b0000010001;  // B opcode (10 bits)
+  let Inst{5-4} = 0b10;           // Ts = symbolic addressing
+  let Inst{3-0} = 0b0000;         // S = 0 (address follows)
+  let Inst{31-16} = target;       // Second word: target address
+  let Size = 4;
+  let isCodeGenOnly = 1;
+  let SchedRW = [WriteBranch];
 }
 }
 
