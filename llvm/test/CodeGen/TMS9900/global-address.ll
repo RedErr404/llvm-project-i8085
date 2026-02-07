@@ -52,9 +52,9 @@ define i8 @load_global_i8() {
 }
 
 ; --- Store global i8 (byte) ---
-; Byte store uses shift-left-8 and MOVB.
+; Byte store uses SWPB (peephole-optimized from SLA 8) and MOVB.
 ; CHECK-LABEL: store_global_i8:
-; CHECK: SLA{{[ \t]+}}R0,8
+; CHECK: SWPB{{[ \t]+}}R0
 ; CHECK: MOVB{{[ \t]+}}R0,@g8
 ; CHECK: B{{[ \t]+}}*R11
 

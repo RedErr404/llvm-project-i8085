@@ -11,7 +11,7 @@ entry:
 }
 
 ; CHECK-LABEL: store_i8
-; CHECK: SLA{{[ \t]+}}R1,8
+; CHECK: SWPB{{[ \t]+}}R1
 ; CHECK: MOVB{{[ \t]+}}R1,*R0
 
 define void @store_i8(i8* %p, i8 %v) {

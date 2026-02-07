@@ -16,10 +16,13 @@
 //  - CI Rx,0 -> MOV Rx,Rx when CI cannot be fully eliminated (2 bytes smaller)
 //  - Crr Rx,Ry -> delete when one operand is provably zero and prior set flags
 //  - ANDI Rx,0xFF00 -> delete when next use of Rx is MOVB source
+//  - ANDI Rx,0xFF00 -> delete when followed by AI Rx,N*256 then MOVB source
 //  - SRL Rx,8 + ANDI Rx,0x00FF -> SWPB Rx + ANDI Rx,0x00FF
 //  - SLA Rx,8 + ANDI Rx,0xFF00 -> SWPB Rx + ANDI Rx,0xFF00
+//  - SLA Rx,8 + MOVB Rx,dst   -> SWPB Rx + MOVB Rx,dst
 //  - Dead first load when consecutive loads define same register
 //  - AI 0 removed when status flags are dead
+//  - INV Rx + INV Rx (consecutive) -> delete both (double inversion cancels)
 //
 //===----------------------------------------------------------------------===//
 
@@ -138,6 +141,23 @@ static bool tryFoldPostInc(MachineInstr &IncMI,
   return true;
 }
 
+/// Return the operand index of the source register (the register whose
+/// HIGH byte is read) in a MOVB store/move instruction, or -1 if \p MI
+/// is not a MOVB that reads a source register.
+static int getMovbSrcOpIdx(const MachineInstr &MI) {
+  switch (MI.getOpcode()) {
+  default:
+    return -1;
+  case TMS9900::MOVBmi:  // MOVB Rs,*Rd -- src is operand 1
+  case TMS9900::MOVBma:  // MOVB Rs,@addr -- src is operand 1
+  case TMS9900::MOVBrr:  // MOVB Rs,Rd -- src is operand 1
+    return 1;
+  case TMS9900::MOVBmx:  // MOVB Rs,@off(Ri) -- src is operand 2
+  case TMS9900::MOVBmpi: // MOVB Rs,*Rd+ -- src is operand 2
+    return 2;
+  }
+}
+
 class TMS9900PeepholePass : public MachineFunctionPass {
 public:
   static char ID;
@@ -158,6 +178,43 @@ public:
         if (tryFoldPostInc(MI, TII, TRI)) {
           Changed = true;
           continue;
+        }
+
+        // Double INV cancellation: INV Rx followed by INV Rx -> delete both.
+        // This pattern arises from the AND pseudo expansion when two
+        // consecutive ANDs use the same source: the first AND's restore
+        // INV and the second AND's initial INV cancel each other.
+        //
+        // The first INV's ST def is always dead (immediately overwritten by
+        // the second INV). For the second INV, we must verify that ST is
+        // dead too (either marked dead, or the next instruction also defs ST).
+        if (Opc == TMS9900::INVr) {
+          MachineInstr *Next = MI.getNextNode();
+          while (Next && Next->isDebugInstr())
+            Next = Next->getNextNode();
+          if (Next && Next->getOpcode() == TMS9900::INVr &&
+              MI.getOperand(0).getReg() == Next->getOperand(0).getReg()) {
+            // Check that the second INV's ST def is dead.
+            bool SecondSTDead = Next->registerDefIsDead(TMS9900::ST, TRI);
+            if (!SecondSTDead) {
+              // Check if the instruction after the pair also defines ST,
+              // making the second INV's ST def effectively dead.
+              MachineInstr *After = Next->getNextNode();
+              while (After && After->isDebugInstr())
+                After = After->getNextNode();
+              if (After && After->modifiesRegister(TMS9900::ST, TRI))
+                SecondSTDead = true;
+            }
+            if (SecondSTDead) {
+              // Set the iterator to the instruction after Next before
+              // erasing, since It may currently point at Next.
+              It = std::next(MachineBasicBlock::instr_iterator(Next));
+              Next->eraseFromParent();
+              MI.eraseFromParent();
+              Changed = true;
+              continue;
+            }
+          }
         }
 
         // Redundant load elimination: if two consecutive instructions both
@@ -588,6 +645,7 @@ public:
 
         // SRL Rx,8 + ANDI Rx,0x00FF -> SWPB Rx + ANDI Rx,0x00FF
         // SLA Rx,8 + ANDI Rx,0xFF00 -> SWPB Rx + ANDI Rx,0xFF00
+        // SLA Rx,8 + MOVB Rx,dst   -> SWPB Rx + MOVB Rx,dst
         //
         // SWPB exchanges high and low bytes (10 cycles, 2 bytes) vs
         // SRL/SLA by 8 (36 cycles, 4 bytes).  The subsequent ANDI
@@ -596,6 +654,11 @@ public:
         //   SWPB Rx:   0xABCD -> 0xCDAB, then ANDI 0x00FF -> 0x00AB
         //   SLA Rx,8:  0xABCD -> 0xCD00
         //   SWPB Rx:   0xABCD -> 0xCDAB, then ANDI 0xFF00 -> 0xCD00
+        //
+        // For SLA Rx,8 + MOVB: MOVB only reads the HIGH byte of Rx.
+        // Both SLA 8 and SWPB put the original low byte into the high
+        // byte position. The low byte differs (SLA zeros it, SWPB puts
+        // old high byte there) but MOVB ignores it.
         // Savings: 2 bytes, 26 cycles per instance.
         if (Opc == TMS9900::SRLri || Opc == TMS9900::SLAri) {
           if (!MI.getOperand(2).isImm() || MI.getOperand(2).getImm() != 8)
@@ -608,24 +671,37 @@ public:
           if (!Next)
             continue;
 
-          // Next must be ANDI on the same register with the right mask.
-          if (Next->getOpcode() != TMS9900::ANDI)
-            continue;
-          if (!Next->getOperand(2).isImm())
-            continue;
-
           Register Rx = MI.getOperand(0).getReg();
-          if (Next->getOperand(0).getReg() != Rx)
+          bool CanReplace = false;
+
+          // Case 1: shift + ANDI with matching mask.
+          if (Next->getOpcode() == TMS9900::ANDI &&
+              Next->getOperand(2).isImm() &&
+              Next->getOperand(0).getReg() == Rx) {
+            uint16_t Mask =
+                static_cast<uint16_t>(Next->getOperand(2).getImm());
+            bool WantLow = (Opc == TMS9900::SRLri && Mask == 0x00FF);
+            bool WantHigh = (Opc == TMS9900::SLAri && Mask == 0xFF00);
+            CanReplace = WantLow || WantHigh;
+          }
+
+          // Case 2: SLA Rx,8 + MOVB that reads Rx as source.
+          // MOVB only uses the high byte, so SWPB produces the same
+          // observable result as SLA 8.
+          if (!CanReplace && Opc == TMS9900::SLAri) {
+            int SrcIdx = getMovbSrcOpIdx(*Next);
+            if (SrcIdx >= 0 &&
+                SrcIdx < (int)Next->getNumOperands() &&
+                Next->getOperand(SrcIdx).isReg() &&
+                Next->getOperand(SrcIdx).getReg() == Rx) {
+              CanReplace = true;
+            }
+          }
+
+          if (!CanReplace)
             continue;
 
-          uint16_t Mask =
-              static_cast<uint16_t>(Next->getOperand(2).getImm());
-          bool WantLow = (Opc == TMS9900::SRLri && Mask == 0x00FF);
-          bool WantHigh = (Opc == TMS9900::SLAri && Mask == 0xFF00);
-          if (!WantLow && !WantHigh)
-            continue;
-
-          // Replace the shift with SWPB, keep the ANDI.
+          // Replace the shift with SWPB, keep the following instruction.
           bool DeadDef = MI.getOperand(0).isDead();
           bool KillUse = MI.getOperand(1).isKill();
           DebugLoc DL = MI.getDebugLoc();
@@ -636,7 +712,7 @@ public:
           MIB.addReg(Rx, KillUse ? RegState::Kill : 0);
 
           // SWPBr implicitly defs ST.  The shift's ST def is dead
-          // (the ANDI will set ST next), so mark it dead on the SWPB.
+          // (the next instruction will set ST), so mark it dead on SWPB.
           if (int STIdx =
                   MIB->findRegisterDefOperandIdx(TMS9900::ST, true);
               STIdx != -1 &&
@@ -649,17 +725,31 @@ public:
           continue;
         }
 
-        // ANDI Rx,0xFF00 -> delete when the next use of Rx is a MOVB
-        // that reads Rx as its source operand, and Rx is killed there.
+        // ANDI Rx,0xFF00 -> delete when the eventual consumer of Rx
+        // only reads the HIGH byte (MOVB source) and Rx is killed there.
         //
-        // Pattern: MOVB src,Rx  (loads byte into high byte of Rx)
-        //          ANDI Rx,0xFF00  (zeros low byte -- 4 bytes, 24 cycles)
-        //          MOVB Rx,dst  (stores high byte of Rx)
+        // Case 1 (direct): ANDI + MOVB
+        //   MOVB src,Rx  (loads byte into high byte of Rx)
+        //   ANDI Rx,0xFF00  (zeros low byte -- 4 bytes, 24 cycles)
+        //   MOVB Rx,dst  (stores high byte of Rx)
+        //
+        // Case 2 (through AI): ANDI + AI + MOVB
+        //   MOVB src,Rx  (loads byte into high byte of Rx)
+        //   ANDI Rx,0xFF00  (zeros low byte)
+        //   AI Rx,N*256  (add to high byte; N*256 has 0 in low byte)
+        //   MOVB Rx,dst  (stores high byte)
+        //
+        // In Case 2, since AI adds a multiple of 256, the low byte
+        // of Rx does not carry into the high byte (adding 0x00 to the
+        // low byte cannot generate a carry), so clearing the low byte
+        // with ANDI is unnecessary.
         //
         // Since MOVB only sends the high byte, and ANDI 0xFF00 only
-        // affects the low byte, the ANDI is redundant when the next
+        // affects the low byte, the ANDI is redundant when the
         // consumer only cares about the high byte (MOVB source) and
         // Rx is killed (no later reader sees the low byte).
+        //
+        // Savings: 4 bytes, 24 cycles per instance.
         if (Opc == TMS9900::ANDI) {
           if (!MI.getOperand(2).isImm())
             continue;
@@ -677,39 +767,55 @@ public:
           if (!Next)
             continue;
 
-          // The next instruction must be a MOVB store/move that reads
-          // Rx as its source (high byte) and kills Rx.
-          unsigned NextOpc = Next->getOpcode();
-          int SrcOpIdx = -1;
-          switch (NextOpc) {
-          default:
-            continue;
-          case TMS9900::MOVBmi:  // MOVB Rs,*Rd -- src is operand 1
-          case TMS9900::MOVBma:  // MOVB Rs,@addr -- src is operand 1
-          case TMS9900::MOVBrr:  // MOVB Rs,Rd -- src is operand 1
-            SrcOpIdx = 1;
-            break;
-          case TMS9900::MOVBmx:  // MOVB Rs,@off(Ri) -- src is operand 2
-            SrcOpIdx = 2;
-            break;
+          // Check for optional intervening AI Rx,N where N is a
+          // multiple of 256 (low byte is 0x00).  This is safe because
+          // adding a value with 0 in the low byte cannot carry from
+          // the low byte to the high byte.
+          MachineInstr *Consumer = Next;
+          bool SkippedAI = false;
+          if (Next->getOpcode() == TMS9900::AI &&
+              Next->getOperand(0).getReg() == Rx &&
+              Next->getOperand(1).getReg() == Rx &&
+              Next->getOperand(2).isImm()) {
+            int16_t AIImm =
+                static_cast<int16_t>(Next->getOperand(2).getImm());
+            // Check that the immediate is a multiple of 256 (low byte
+            // is 0).  This means the AI only affects the high byte.
+            if ((AIImm & 0xFF) == 0) {
+              Consumer = Next->getNextNode();
+              while (Consumer && Consumer->isDebugInstr())
+                Consumer = Consumer->getNextNode();
+              if (!Consumer)
+                continue;
+              SkippedAI = true;
+            }
           }
 
+          // Consumer must be a MOVB that reads Rx as source (high byte).
+          int SrcOpIdx = getMovbSrcOpIdx(*Consumer);
+
           if (SrcOpIdx < 0 ||
-              SrcOpIdx >= (int)Next->getNumOperands() ||
-              !Next->getOperand(SrcOpIdx).isReg() ||
-              Next->getOperand(SrcOpIdx).getReg() != Rx)
+              SrcOpIdx >= (int)Consumer->getNumOperands() ||
+              !Consumer->getOperand(SrcOpIdx).isReg() ||
+              Consumer->getOperand(SrcOpIdx).getReg() != Rx)
             continue;
 
           // Rx must be killed by the MOVB (no later reader of the low
-          // byte) -- or at least no other operand of Next reads Rx.
-          if (!Next->getOperand(SrcOpIdx).isKill())
+          // byte) -- or at least no other operand of Consumer reads Rx.
+          if (!Consumer->getOperand(SrcOpIdx).isKill())
             continue;
 
           // Safe to delete.  Propagate liveness: the ANDI's source
           // operand (operand 1, the tied input) carries the kill flag
-          // for Rx from before ANDI.  Transfer that to the MOVB source.
+          // for Rx from before ANDI.  Transfer that to the next
+          // instruction's use of Rx.
           bool WasKill = MI.getOperand(1).isKill();
-          Next->getOperand(SrcOpIdx).setIsKill(WasKill);
+          if (SkippedAI) {
+            // AI is between ANDI and MOVB.  Transfer kill to AI input.
+            Next->getOperand(1).setIsKill(WasKill);
+          } else {
+            Consumer->getOperand(SrcOpIdx).setIsKill(WasKill);
+          }
 
           MI.eraseFromParent();
           Changed = true;
