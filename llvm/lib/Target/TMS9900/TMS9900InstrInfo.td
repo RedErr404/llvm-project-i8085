@@ -295,6 +295,9 @@ def MOVBrr : Format1_Reg<0b1100, 1, (outs GR16:$rd), (ins GR16:$rs),
 
 let Defs = [ST] in {
 // MOV @addr,Rd - Load from absolute address
+// Marked as rematerializable; verified by isReallyTriviallyReMaterializable
+// which checks that the address refers to a constant global or constant pool.
+let isReMaterializable = 1 in
 def MOVam : Format1_SymLoad<0b1100, 0, (outs GR16:$rd), (ins symaddr:$addr),
                             "MOV\t@$addr,$rd",
                             [(set GR16:$rd, (load (TMS9900Wrapper tglobaladdr:$addr)))]> {
@@ -302,6 +305,8 @@ def MOVam : Format1_SymLoad<0b1100, 0, (outs GR16:$rd), (ins symaddr:$addr),
 }
 
 // MOV *Rs,Rd - Load indirect (pointer dereference)
+// NOT rematerializable: the pointer register value could change between
+// the original load and the rematerialization point.
 def MOVim : Format1_IndLoad<0b1100, 0, (outs GR16:$rd), (ins GR16:$rs),
                             "MOV\t*$rs,$rd",
                             [(set GR16:$rd, (load GR16:$rs))]> {
@@ -310,6 +315,9 @@ def MOVim : Format1_IndLoad<0b1100, 0, (outs GR16:$rd), (ins GR16:$rs),
 
 // MOV @offset(Ri),Rd - Load indexed
 // Used for stack-relative addressing (locals via SP)
+// Marked as rematerializable; verified by isReallyTriviallyReMaterializable
+// which checks that the base register is the frame pointer (R10).
+let isReMaterializable = 1 in
 def MOVxm : Format1_IdxLoad<0b1100, 0, (outs GR16:$rd), (ins i16imm:$offset, IdxRegs:$ri),
                             "MOV\t@${offset}(${ri}),$rd",
                             [(set GR16:$rd, (load (add IdxRegs:$ri, (i16 imm:$offset))))]> {
@@ -354,7 +362,10 @@ def MOVmx : Format1_IdxStore<0b1100, 0, (outs), (ins i16imm:$offset, IdxRegs:$ri
 // MOV @offset(Ri),Rd - Load indexed (frame index compatible)
 // This is a pseudo that will be printed by custom code in TMS9900AsmPrinter
 // or expanded by TMS9900MCInstLower
-let Defs = [ST], mayLoad = 1, isCodeGenOnly = 1, isPseudo = 1 in
+// Marked as rematerializable; verified by isReallyTriviallyReMaterializable
+// which checks that the base is a frame index pointing to an immutable object.
+let Defs = [ST], mayLoad = 1, isCodeGenOnly = 1, isPseudo = 1,
+    isReMaterializable = 1 in
 def MOV_FI_Load : TMS9900Inst<(outs GR16:$rd), (ins IdxRegs:$base, i16imm:$offset),
                               "MOV\t@${offset}(${base}),$rd",
                               []> {
@@ -616,7 +627,8 @@ defm CB : Format1ExtMem<0b1000, 1, "CB">;
 }
 
 // LI - Load Immediate (sets status based on value loaded)
-let Defs = [ST] in
+// Always safe to rematerialize since the immediate is encoded in the instruction.
+let Defs = [ST], isReMaterializable = 1, isAsCheapAsAMove = 1 in
 def LI : Format8<0b0000, (outs GR16:$rd), (ins i16imm:$imm),
                  "LI\t$rd,$imm",
                  [(set GR16:$rd, imm:$imm)]> {
@@ -627,6 +639,8 @@ def LI : Format8<0b0000, (outs GR16:$rd), (ins i16imm:$imm),
 let Defs = [ST] in {
 let SchedRW = [WriteFast] in {
 // CLR - Clear (set to 0) - sets EQ=1
+// Always safe to rematerialize (produces constant 0).
+let isReMaterializable = 1, isAsCheapAsAMove = 1 in
 def CLRr : Format3_Reg<0b0000010011, (outs GR16:$rs), (ins),
                        "CLR\t$rs",
                        [(set GR16:$rs, 0)]>;
@@ -657,6 +671,8 @@ def CLR_pim : Format3_AutoInc<0b0000010011, (outs), (ins GR16:$rs),
 }
 
 // SETO - Set to ones (FFFF) - sets LGT=1, AGT=0, EQ=0
+// Always safe to rematerialize (produces constant 0xFFFF).
+let isReMaterializable = 1, isAsCheapAsAMove = 1 in
 def SETOr : Format3_Reg<0b0000011100, (outs GR16:$rs), (ins),
                         "SETO\t$rs",
                         [(set GR16:$rs, -1)]>;
@@ -1964,3 +1980,21 @@ def : Pat<(TMS9900Wrapper tblockaddress:$addr),
 // This matches loading from (wrapper + reg), used for jump table indexing
 def : Pat<(load (add (TMS9900Wrapper tjumptable:$table), GR16:$idx)),
           (MOVxm tjumptable:$table, GR16:$idx)>;
+
+// Indexed addressing for global addresses: MOV @global(Rx),Rd
+// Folds (LI Rt,global / A Rx,Rt / MOV *Rt,Rd) into (MOV @global(Rx),Rd)
+// Saves 2 words + ~8 cycles. R0 excluded by IdxRegs constraint on MOVxm.
+def : Pat<(load (add (TMS9900Wrapper tglobaladdr:$addr), GR16:$idx)),
+          (MOVxm tglobaladdr:$addr, GR16:$idx)>;
+
+// Indexed store for global addresses: MOV Rs,@global(Rx)
+def : Pat<(store GR16:$val, (add (TMS9900Wrapper tglobaladdr:$addr), GR16:$idx)),
+          (MOVmx tglobaladdr:$addr, GR16:$idx, GR16:$val)>;
+
+// Indexed byte load for global addresses: MOVB @global(Rx),Rd
+def : Pat<(TMS9900byteload (add (TMS9900Wrapper tglobaladdr:$addr), GR16:$idx)),
+          (MOVBxm tglobaladdr:$addr, GR16:$idx)>;
+
+// Indexed byte store for global addresses: MOVB Rs,@global(Rx)
+def : Pat<(TMS9900bytestore GR16:$val, (add (TMS9900Wrapper tglobaladdr:$addr), GR16:$idx)),
+          (MOVBmx tglobaladdr:$addr, GR16:$idx, GR16:$val)>;

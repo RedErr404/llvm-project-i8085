@@ -79,6 +79,8 @@ public:
                             RegScavenger *RS = nullptr) const override;
 
   bool expandPostRAPseudo(MachineInstr &MI) const override;
+
+  bool isReallyTriviallyReMaterializable(const MachineInstr &MI) const override;
 };
 
 } // end namespace llvm
