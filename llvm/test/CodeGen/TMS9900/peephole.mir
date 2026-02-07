@@ -175,9 +175,11 @@ body: |
 ...
 
 # CHECK-LABEL: name: ci_no_elim_diff_reg
-# CI should NOT be eliminated - SRL set flags on R0, but CI tests R1:
+# CI cannot be fully eliminated (SRL set flags on R0, but CI tests R1).
+# CI Rx,0 is replaced with MOV Rx,Rx (2 bytes smaller).
 # CHECK: SRLri
-# CHECK: CI
+# CHECK-NOT: CI killed
+# CHECK: $r1 = MOVrr killed $r1, implicit-def $st
 # CHECK: JEQ
 
 # CI Rx,0 NOT eliminated when next instruction is not a conditional branch
@@ -193,9 +195,11 @@ body: |
 ...
 
 # CHECK-LABEL: name: ci_no_elim_no_branch
-# CI should NOT be eliminated - next instruction is RET, not a branch:
+# CI cannot be fully eliminated (next instruction is RET, not a branch).
+# CI Rx,0 is replaced with MOV Rx,Rx (2 bytes smaller).
 # CHECK: SRLri
-# CHECK: CI
+# CHECK-NOT: CI killed
+# CHECK: $r5 = MOVrr killed $r5, implicit-def $st
 # CHECK: RET
 
 # Redundant load elimination

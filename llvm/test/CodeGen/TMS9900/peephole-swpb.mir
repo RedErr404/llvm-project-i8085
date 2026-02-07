@@ -1,0 +1,147 @@
+# RUN: llc -mtriple=tms9900 -run-pass=tms9900-peephole %s -o - | FileCheck %s
+#
+# Tests for SRL/SLA Rx,8 -> SWPB Rx peephole when followed by the
+# appropriate ANDI mask.
+#
+#   SRL Rx,8 + ANDI Rx,0x00FF  ->  SWPB Rx + ANDI Rx,0x00FF
+#   SLA Rx,8 + ANDI Rx,0xFF00  ->  SWPB Rx + ANDI Rx,0xFF00
+#
+# Saves 2 bytes and 26 cycles per instance.
+
+--- |
+  define void @srl8_andi_00ff() { ret void }
+  define void @sla8_andi_ff00() { ret void }
+  define void @srl8_no_andi() { ret void }
+  define void @srl8_wrong_mask() { ret void }
+  define void @srl8_diff_reg() { ret void }
+  define void @srl_not_8() { ret void }
+  define void @sla8_wrong_mask() { ret void }
+...
+
+# Pattern A: SRL R5,8 followed by ANDI R5,0x00FF -> SWPB R5 + ANDI R5,0x00FF
+---
+name: srl8_andi_00ff
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r5
+    renamable $r5 = SRLri killed $r5, 8, implicit-def dead $st
+    renamable $r5 = ANDI killed $r5, 255, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: srl8_andi_00ff
+# SRL should be replaced with SWPB:
+# CHECK-NOT: SRLri
+# CHECK: SWPBr
+# ANDI should remain:
+# CHECK: ANDI
+# CHECK: RET
+
+# Pattern B: SLA R3,8 followed by ANDI R3,0xFF00 -> SWPB R3 + ANDI R3,0xFF00
+---
+name: sla8_andi_ff00
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r3
+    renamable $r3 = SLAri killed $r3, 8, implicit-def dead $st
+    renamable $r3 = ANDI killed $r3, -256, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: sla8_andi_ff00
+# SLA should be replaced with SWPB:
+# CHECK-NOT: SLAri
+# CHECK: SWPBr
+# ANDI should remain:
+# CHECK: ANDI
+# CHECK: RET
+
+# Negative: SRL R5,8 NOT followed by ANDI -> keep SRL
+---
+name: srl8_no_andi
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r5
+    renamable $r5 = SRLri killed $r5, 8, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: srl8_no_andi
+# SRL should remain (no ANDI follows):
+# CHECK: SRLri
+# CHECK: RET
+
+# Negative: SRL R5,8 followed by ANDI with wrong mask (0xFF00 instead of 0x00FF)
+---
+name: srl8_wrong_mask
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r5
+    renamable $r5 = SRLri killed $r5, 8, implicit-def dead $st
+    renamable $r5 = ANDI killed $r5, -256, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: srl8_wrong_mask
+# SRL should remain (mask is 0xFF00, not 0x00FF):
+# CHECK: SRLri
+# CHECK: ANDI
+# CHECK: RET
+
+# Negative: SRL R5,8 followed by ANDI on a different register
+---
+name: srl8_diff_reg
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r5, $r6
+    renamable $r5 = SRLri killed $r5, 8, implicit-def dead $st
+    renamable $r6 = ANDI killed $r6, 255, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: srl8_diff_reg
+# SRL should remain (ANDI is on R6, not R5):
+# CHECK: SRLri
+# CHECK: ANDI
+# CHECK: RET
+
+# Negative: SRL with shift count != 8
+---
+name: srl_not_8
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r5
+    renamable $r5 = SRLri killed $r5, 4, implicit-def dead $st
+    renamable $r5 = ANDI killed $r5, 255, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: srl_not_8
+# SRL should remain (shift count is 4, not 8):
+# CHECK: SRLri
+# CHECK: ANDI
+# CHECK: RET
+
+# Negative: SLA R3,8 followed by ANDI with wrong mask (0x00FF instead of 0xFF00)
+---
+name: sla8_wrong_mask
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r3
+    renamable $r3 = SLAri killed $r3, 8, implicit-def dead $st
+    renamable $r3 = ANDI killed $r3, 255, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: sla8_wrong_mask
+# SLA should remain (mask is 0x00FF, not 0xFF00):
+# CHECK: SLAri
+# CHECK: ANDI
+# CHECK: RET

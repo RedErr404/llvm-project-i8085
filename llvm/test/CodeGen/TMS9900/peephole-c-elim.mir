@@ -1,0 +1,246 @@
+# RUN: llc -mtriple=tms9900 -run-pass=tms9900-peephole %s -o - | FileCheck %s
+#
+# Tests for Crr (register-register compare) elimination in the peephole pass.
+#
+# When a Crr compares a register whose flags were already set by the
+# preceding ALU instruction against a register known to hold zero,
+# the Crr is redundant and can be deleted.
+#
+# TMS9900 Crr encoding: Crr rs1(D), rs2(S).
+# Hardware sets: EQ if S==D, LGT if S>D, AGT if S>D.
+#
+# Case A -- zero in rs1 (D field):
+#   All flags (EQ, LGT, AGT) match the preceding ALU instruction.
+#   Safe for any conditional branch.
+#
+# Case B -- zero in rs2 (S field):
+#   Only EQ matches. Safe for JEQ/JNE only.
+#
+# Test cases:
+#   - Crr after ANDI, zero in rs1 (Case A) -- fully eliminated
+#   - Crr after ANDI, zero from LI 0 -- fully eliminated
+#   - Crr after SRL, zero in rs2 (Case B), JEQ -- eliminated
+#   - Crr after SRL, zero in rs2 (Case B), JGT -- NOT eliminated
+#   - Crr where zero reg was redefined -- NOT eliminated
+#   - Crr where preceding instr doesn't define either operand -- NOT eliminated
+#   - Crr with no preceding instruction -- NOT eliminated
+#   - Crr after ANDI, zero in rs1 (Case A), JGT -- fully eliminated
+
+--- |
+  define i16 @crr_elim_andi_case_a() { ret i16 0 }
+  define i16 @crr_elim_li_zero() { ret i16 0 }
+  define i16 @crr_elim_case_b_jeq() { ret i16 0 }
+  define i16 @crr_no_elim_case_b_jgt() { ret i16 0 }
+  define i16 @crr_no_elim_zero_redefined() { ret i16 0 }
+  define i16 @crr_no_elim_diff_reg() { ret i16 0 }
+  define i16 @crr_no_elim_bb_start() { ret i16 0 }
+  define i16 @crr_elim_case_a_jgt() { ret i16 0 }
+...
+
+# Case A: ANDI R5,1 then Crr R0,R5 where R0=0 (zero in rs1/D field).
+# All flags match -- safe for JNE.
+---
+name: crr_elim_andi_case_a
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r0 = CLRr implicit-def dead $st
+    renamable $r5 = IMPLICIT_DEF
+    renamable $r5 = ANDI killed $r5, 1, implicit-def dead $st
+    Crr killed $r0, killed $r5, implicit-def $st
+    JNE %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: crr_elim_andi_case_a
+# ANDI defines R5 and sets ST. Crr compares R0(zero) with R5. Redundant.
+# CHECK: ANDI
+# CHECK-NOT: Crr
+# CHECK: JNE
+
+# Case A with LI 0 instead of CLR.
+---
+name: crr_elim_li_zero
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r3 = LI 0, implicit-def dead $st
+    renamable $r5 = IMPLICIT_DEF
+    renamable $r5 = ANDI killed $r5, 15, implicit-def dead $st
+    Crr killed $r3, killed $r5, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: crr_elim_li_zero
+# LI 0 proves R3 is zero. ANDI sets flags on R5. Crr is redundant.
+# CHECK: ANDI
+# CHECK-NOT: Crr
+# CHECK: JEQ
+
+# Case B: zero in rs2 (S field), JEQ -- safe (EQ flag matches).
+# Pattern: SRL R1,8 then Crr R1,R0 where R0=0 (zero in rs2/S field).
+---
+name: crr_elim_case_b_jeq
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r0 = CLRr implicit-def dead $st
+    renamable $r1 = IMPLICIT_DEF
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r1, killed $r0, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: crr_elim_case_b_jeq
+# SRL defines R1 and sets ST. R0 is zero (rs2). JEQ only tests EQ.
+# CHECK: SRLri
+# CHECK-NOT: Crr
+# CHECK: JEQ
+
+# Case B: zero in rs2, JGT -- NOT safe (LGT flag does not match).
+---
+name: crr_no_elim_case_b_jgt
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r0 = CLRr implicit-def dead $st
+    renamable $r1 = IMPLICIT_DEF
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r1, killed $r0, implicit-def $st
+    JGT %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: crr_no_elim_case_b_jgt
+# Case B with JGT: not safe since LGT/AGT flags differ. Crr must remain.
+# CHECK: SRLri
+# CHECK: Crr
+# CHECK: JGT
+
+# Zero register was redefined between CLR and Crr -- NOT eliminated.
+---
+name: crr_no_elim_zero_redefined
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r0 = CLRr implicit-def dead $st
+    renamable $r5 = IMPLICIT_DEF
+    renamable $r0 = ANDI killed $r0, 255, implicit-def dead $st
+    renamable $r5 = ANDI killed $r5, 1, implicit-def dead $st
+    Crr killed $r0, killed $r5, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: crr_no_elim_zero_redefined
+# R0 was CLR'd but then redefined by ANDI R0,255. Cannot prove R0 is zero.
+# CHECK: Crr
+# CHECK: JEQ
+
+# Preceding instruction doesn't define either Crr operand -- NOT eliminated.
+---
+name: crr_no_elim_diff_reg
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r0 = CLRr implicit-def dead $st
+    renamable $r1 = IMPLICIT_DEF
+    renamable $r5 = IMPLICIT_DEF
+    renamable $r5 = ANDI killed $r5, 1, implicit-def dead $st
+    Crr killed $r0, killed $r1, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: crr_no_elim_diff_reg
+# ANDI defines R5, but Crr tests R0 and R1. No match. Crr remains.
+# CHECK: ANDI
+# CHECK: Crr
+# CHECK: JEQ
+
+# No preceding instruction (Crr at BB start) -- NOT eliminated.
+---
+name: crr_no_elim_bb_start
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r5
+    Crr killed $r0, killed $r5, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: crr_no_elim_bb_start
+# No preceding instruction in the BB. Cannot eliminate.
+# CHECK: Crr
+# CHECK: JEQ
+
+# Case A: zero in rs1, JGT -- safe (all flags match).
+---
+name: crr_elim_case_a_jgt
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r0 = CLRr implicit-def dead $st
+    renamable $r5 = IMPLICIT_DEF
+    renamable $r5 = ANDI killed $r5, 1, implicit-def dead $st
+    Crr killed $r0, killed $r5, implicit-def $st
+    JGT %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: crr_elim_case_a_jgt
+# Case A: zero in rs1 (D field). All flags match. Safe for JGT.
+# CHECK: ANDI
+# CHECK-NOT: Crr
+# CHECK: JGT
