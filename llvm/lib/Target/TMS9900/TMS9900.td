@@ -20,7 +20,13 @@ include "llvm/Target/Target.td"
 // TMS9900 Subtarget features
 //===----------------------------------------------------------------------===//
 
-// No subtarget features for now - base TMS9900 only
+// Reserve R12 for CRU base address.  Programs that use CRU instructions
+// (LDCR/STCR/SBO/SBZ/TB) should compile with -mattr=+reserve-cru so that
+// the register allocator will not clobber R12.  When this feature is OFF
+// (the default), R12 is available for general allocation.
+def FeatureReserveCRU : SubtargetFeature<"reserve-cru",
+  "ReserveCRU", "true",
+  "Reserve R12 for CRU base address">;
 
 //===----------------------------------------------------------------------===//
 // Scheduling Model

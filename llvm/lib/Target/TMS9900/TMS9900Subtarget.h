@@ -37,6 +37,9 @@ class TMS9900Subtarget : public TMS9900GenSubtargetInfo {
   TMS9900RegisterInfo RegInfo;
   SelectionDAGTargetInfo TSInfo;
 
+  // Subtarget feature bits (populated by ParseSubtargetFeatures).
+  bool ReserveCRU = false;
+
 public:
   TMS9900Subtarget(const Triple &TT, StringRef CPU, StringRef FS,
                    const TargetMachine &TM);
@@ -58,6 +61,9 @@ public:
   const SelectionDAGTargetInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
   }
+
+  /// Returns true if R12 should be reserved for CRU base address.
+  bool reserveCRU() const { return ReserveCRU; }
 };
 
 } // end namespace llvm

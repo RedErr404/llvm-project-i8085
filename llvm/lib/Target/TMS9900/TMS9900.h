@@ -24,6 +24,10 @@
 #define GET_INSTRINFO_ENUM
 #include "TMS9900GenInstrInfo.inc"
 
+// Defines symbolic names for TMS9900 subtarget features.
+#define GET_SUBTARGETINFO_ENUM
+#include "TMS9900GenSubtargetInfo.inc"
+
 namespace llvm {
 
 class TMS9900TargetMachine;

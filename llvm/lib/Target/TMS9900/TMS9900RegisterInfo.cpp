@@ -52,6 +52,7 @@ TMS9900RegisterInfo::getCallPreservedMask(const MachineFunction &MF,
 
 BitVector TMS9900RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
+  const TMS9900Subtarget &Subtarget = MF.getSubtarget<TMS9900Subtarget>();
 
   // R10 is the stack pointer
   Reserved.set(TMS9900::R10);
@@ -59,9 +60,10 @@ BitVector TMS9900RegisterInfo::getReservedRegs(const MachineFunction &MF) const 
   // R11 is the link register (return address)
   Reserved.set(TMS9900::R11);
 
-  // R12 is typically reserved for CRU base address
-  // But could be made allocatable if not doing I/O
-  Reserved.set(TMS9900::R12);
+  // R12 is the CRU base address register.  Reserve it only when the
+  // program uses CRU instructions (-mattr=+reserve-cru).
+  if (Subtarget.reserveCRU())
+    Reserved.set(TMS9900::R12);
 
   // Internal registers are not allocatable
   Reserved.set(TMS9900::PC);
