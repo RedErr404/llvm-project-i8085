@@ -7,6 +7,9 @@
 #   SLA Rx,8 + ANDI Rx,0xFF00  ->  SWPB Rx + ANDI Rx,0xFF00
 #
 # Saves 2 bytes and 26 cycles per instance.
+#
+# SWPB does NOT affect the status register (TMS9900 Data Manual),
+# so flags set before the shift are preserved across SWPB.
 
 --- |
   define void @srl8_andi_00ff() { ret void }
@@ -16,6 +19,7 @@
   define void @srl8_diff_reg() { ret void }
   define void @srl_not_8() { ret void }
   define void @sla8_wrong_mask() { ret void }
+  define void @swpb_preserves_flags() { ret void }
 ...
 
 # Pattern A: SRL R5,8 followed by ANDI R5,0x00FF -> SWPB R5 + ANDI R5,0x00FF
@@ -31,9 +35,10 @@ body: |
 ...
 
 # CHECK-LABEL: name: srl8_andi_00ff
-# SRL should be replaced with SWPB:
+# SRL should be replaced with SWPB (no implicit-def $st):
 # CHECK-NOT: SRLri
 # CHECK: SWPBr
+# CHECK-NOT: implicit-def $st
 # ANDI should remain:
 # CHECK: ANDI
 # CHECK: RET
@@ -54,6 +59,7 @@ body: |
 # SLA should be replaced with SWPB:
 # CHECK-NOT: SLAri
 # CHECK: SWPBr
+# CHECK-NOT: implicit-def $st
 # ANDI should remain:
 # CHECK: ANDI
 # CHECK: RET
@@ -145,3 +151,31 @@ body: |
 # CHECK: SLAri
 # CHECK: ANDI
 # CHECK: RET
+
+# Positive: SWPB preserves flags from preceding instruction.
+# CI sets flags, then SRL Rx,8 + ANDI -> SWPB + ANDI.
+# The SWPB should NOT have implicit-def $st, preserving CI's flags.
+---
+name: swpb_preserves_flags
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r3, $r5
+    CI killed $r3, 42, implicit-def $st
+    renamable $r5 = SRLri killed $r5, 8, implicit-def dead $st
+    renamable $r5 = ANDI killed $r5, 255, implicit-def dead $st
+    JNE %bb.2, implicit $st
+  bb.1:
+    RET
+  bb.2:
+    RET
+...
+
+# CHECK-LABEL: name: swpb_preserves_flags
+# The SRL should be replaced with SWPB:
+# CHECK: CI killed $r3, 42, implicit-def $st
+# CHECK-NEXT: $r5 = SWPBr killed $r5
+# SWPB should NOT have implicit-def $st:
+# CHECK-NOT: implicit-def $st
+# CHECK: ANDI
+# CHECK: JNE %bb.2, implicit $st

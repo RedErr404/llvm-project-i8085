@@ -668,7 +668,7 @@ def LI : Format8<0b0000, (outs GR16:$rd), (ins i16imm:$imm),
   let SchedRW = [WriteImm12];
 }
 
-// CLR, SETO, SWPB all set status bits
+// CLR, SETO set status bits; SWPB does NOT affect status (TMS9900 Data Manual)
 let Defs = [ST] in {
 let SchedRW = [WriteFast] in {
 // CLR - Clear (set to 0) - sets EQ=1
@@ -735,7 +735,11 @@ def SETO_pim : Format3_AutoInc<0b0000011100, (outs), (ins GR16:$rs),
   let mayStore = 1;
 }
 
-// SWPB - Swap bytes - sets status based on result
+} // SchedRW = [WriteFast]
+} // Defs = [ST]
+
+// SWPB - Swap bytes - does NOT affect status register (TMS9900 Data Manual)
+let SchedRW = [WriteFast] in {
 def SWPBr : Format3_Reg<0b0000011011, (outs GR16:$rd), (ins GR16:$rs),
                         "SWPB\t$rs",
                         [(set GR16:$rd, (bswap GR16:$rs))]> {
@@ -770,8 +774,7 @@ def SWPB_pim : Format3_AutoInc<0b0000011011, (outs), (ins GR16:$rs),
   let mayLoad = 1;
   let mayStore = 1;
 }
-}
-} // Defs = [ST]
+} // SchedRW = [WriteFast]
 
 //===----------------------------------------------------------------------===//
 // Arithmetic Instructions

@@ -1,0 +1,466 @@
+# RUN: llc -mtriple=tms9900 -run-pass=tms9900-peephole %s -o - | FileCheck %s
+#
+# Tests for CB (compare byte) folding in the peephole pass.
+#
+# When two registers are loaded via MOVB (byte in HIGH position),
+# shifted right by 8 (byte to LOW position), and then compared
+# with Crr, the SRL+SRL+Crr sequence can be replaced with CBrr
+# which compares the HIGH bytes directly.
+#
+# Pattern:
+#   MOVB *Ra, Rx           ; byte in HIGH position
+#   MOVB *Rb, Ry           ; byte in HIGH position
+#   SRLri Rx, 8            ; byte to LOW position
+#   SRLri Ry, 8            ; byte to LOW position
+#   Crr Rx, Ry             ; compare words
+#   Jcc target
+#
+# Becomes:
+#   MOVB *Ra, Rx           ; byte in HIGH position
+#   MOVB *Rb, Ry           ; byte in HIGH position
+#   CBrr Rx, Ry            ; compare HIGH bytes
+#   Jcc target
+#
+# Saves 8 bytes and ~56 cycles (two SRL instructions removed).
+
+--- |
+  define i16 @cb_basic_jeq() { ret i16 0 }
+  define i16 @cb_basic_jne() { ret i16 0 }
+  define i16 @cb_basic_jhe() { ret i16 0 }
+  define i16 @cb_basic_jh() { ret i16 0 }
+  define i16 @cb_basic_jl() { ret i16 0 }
+  define i16 @cb_basic_jle() { ret i16 0 }
+  define i16 @cb_basic_jgt() { ret i16 0 }
+  define i16 @cb_basic_jlt() { ret i16 0 }
+  define i16 @cb_no_fold_not_killed() { ret i16 0 }
+  define i16 @cb_no_fold_not_srl() { ret i16 0 }
+  define i16 @cb_no_fold_srl_not_8() { ret i16 0 }
+  define i16 @cb_no_fold_intervening_use() { ret i16 0 }
+  define i16 @cb_no_fold_same_reg() { ret i16 0 }
+  define i16 @cb_no_fold_st_live() { ret i16 0 }
+  define i16 @cb_srls_separated() { ret i16 0 }
+...
+
+# Basic case: MOVB + MOVB + SRL + SRL + Crr + JEQ -> MOVB + MOVB + CBrr + JEQ
+---
+name: cb_basic_jeq
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1
+    renamable $r0 = MOVBim killed $r0, implicit-def dead $st
+    renamable $r1 = MOVBim killed $r1, implicit-def dead $st
+    renamable $r0 = SRLri killed $r0, 8, implicit-def dead $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r1, killed $r0, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_basic_jeq
+# Both SRLs should be removed and Crr replaced with CBrr:
+# CHECK: MOVBim
+# CHECK: MOVBim
+# CHECK-NOT: SRLri
+# CHECK: CBrr
+# CHECK: JEQ
+
+# Same with JNE branch
+---
+name: cb_basic_jne
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1
+    renamable $r0 = MOVBim killed $r0, implicit-def dead $st
+    renamable $r1 = MOVBim killed $r1, implicit-def dead $st
+    renamable $r0 = SRLri killed $r0, 8, implicit-def dead $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r1, killed $r0, implicit-def $st
+    JNE %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_basic_jne
+# CHECK-NOT: SRLri
+# CHECK: CBrr
+# CHECK: JNE
+
+# Unsigned comparison: JHE (unsigned >=)
+---
+name: cb_basic_jhe
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1
+    renamable $r0 = MOVBim killed $r0, implicit-def dead $st
+    renamable $r1 = MOVBim killed $r1, implicit-def dead $st
+    renamable $r0 = SRLri killed $r0, 8, implicit-def dead $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r1, killed $r0, implicit-def $st
+    JHE %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_basic_jhe
+# CHECK-NOT: SRLri
+# CHECK: CBrr
+# CHECK: JHE
+
+# JH (unsigned >)
+---
+name: cb_basic_jh
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1
+    renamable $r0 = MOVBim killed $r0, implicit-def dead $st
+    renamable $r1 = MOVBim killed $r1, implicit-def dead $st
+    renamable $r0 = SRLri killed $r0, 8, implicit-def dead $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r1, killed $r0, implicit-def $st
+    JH %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_basic_jh
+# CHECK-NOT: SRLri
+# CHECK: CBrr
+# CHECK: JH
+
+# JL (unsigned <)
+---
+name: cb_basic_jl
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1
+    renamable $r0 = MOVBim killed $r0, implicit-def dead $st
+    renamable $r1 = MOVBim killed $r1, implicit-def dead $st
+    renamable $r0 = SRLri killed $r0, 8, implicit-def dead $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r1, killed $r0, implicit-def $st
+    JL %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_basic_jl
+# CHECK-NOT: SRLri
+# CHECK: CBrr
+# CHECK: JL
+
+# JLE (unsigned <=)
+---
+name: cb_basic_jle
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1
+    renamable $r0 = MOVBim killed $r0, implicit-def dead $st
+    renamable $r1 = MOVBim killed $r1, implicit-def dead $st
+    renamable $r0 = SRLri killed $r0, 8, implicit-def dead $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r1, killed $r0, implicit-def $st
+    JLE %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_basic_jle
+# CHECK-NOT: SRLri
+# CHECK: CBrr
+# CHECK: JLE
+
+# JGT (signed >)
+---
+name: cb_basic_jgt
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1
+    renamable $r0 = MOVBim killed $r0, implicit-def dead $st
+    renamable $r1 = MOVBim killed $r1, implicit-def dead $st
+    renamable $r0 = SRLri killed $r0, 8, implicit-def dead $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r1, killed $r0, implicit-def $st
+    JGT %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_basic_jgt
+# CHECK-NOT: SRLri
+# CHECK: CBrr
+# CHECK: JGT
+
+# JLT (signed <)
+---
+name: cb_basic_jlt
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1
+    renamable $r0 = MOVBim killed $r0, implicit-def dead $st
+    renamable $r1 = MOVBim killed $r1, implicit-def dead $st
+    renamable $r0 = SRLri killed $r0, 8, implicit-def dead $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r1, killed $r0, implicit-def $st
+    JLT %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_basic_jlt
+# CHECK-NOT: SRLri
+# CHECK: CBrr
+# CHECK: JLT
+
+# Negative: Crr operands NOT killed (register used later).
+---
+name: cb_no_fold_not_killed
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1
+    renamable $r0 = MOVBim killed $r0, implicit-def dead $st
+    renamable $r1 = MOVBim killed $r1, implicit-def dead $st
+    renamable $r0 = SRLri killed $r0, 8, implicit-def dead $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr $r1, killed $r0, implicit-def $st
+    JNE %bb.1, implicit $st
+
+  bb.2:
+    liveins: $r1
+    $r0 = MOVrr killed $r1, implicit-def dead $st
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_no_fold_not_killed
+# R1 is not killed at Crr (used later). Cannot fold.
+# CHECK: SRLri
+# CHECK: SRLri
+# CHECK: Crr
+# CHECK: JNE
+
+# Negative: First operand's def is NOT SRLri (it's ANDI instead).
+---
+name: cb_no_fold_not_srl
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1
+    renamable $r0 = ANDI killed $r0, 255, implicit-def dead $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r0, killed $r1, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_no_fold_not_srl
+# R0 is defined by ANDI, not SRLri. Cannot fold.
+# CHECK: ANDI
+# CHECK: SRLri
+# CHECK: Crr
+# CHECK: JEQ
+
+# Negative: SRL with shift count != 8.
+---
+name: cb_no_fold_srl_not_8
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1
+    renamable $r0 = SRLri killed $r0, 4, implicit-def dead $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r0, killed $r1, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_no_fold_srl_not_8
+# R0's SRL shifts by 4, not 8. Cannot fold.
+# CHECK: SRLri
+# CHECK: SRLri
+# CHECK: Crr
+# CHECK: JEQ
+
+# Negative: Intervening use of a register between SRL and Crr.
+---
+name: cb_no_fold_intervening_use
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1, $r2
+    renamable $r0 = SRLri killed $r0, 8, implicit-def dead $st
+    renamable $r2 = MOVrr $r0, implicit-def dead $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r0, killed $r1, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    liveins: $r2
+    $r0 = MOVrr killed $r2, implicit-def dead $st
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_no_fold_intervening_use
+# R0 is read by MOVrr between SRL R0 and the Crr. Cannot fold.
+# CHECK: SRLri
+# CHECK: MOVrr
+# CHECK: SRLri
+# CHECK: Crr
+# CHECK: JEQ
+
+# Negative: Both Crr operands are the same register.
+---
+name: cb_no_fold_same_reg
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0
+    renamable $r0 = SRLri killed $r0, 8, implicit-def dead $st
+    Crr killed $r0, $r0, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_no_fold_same_reg
+# Both operands are R0. Cannot fold (need two distinct SRLs).
+# CHECK: SRLri
+# CHECK: Crr
+# CHECK: JEQ
+
+# Negative: SRL's ST def is live (consumed between SRL and Crr).
+---
+name: cb_no_fold_st_live
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1
+    renamable $r0 = MOVBim killed $r0, implicit-def dead $st
+    renamable $r1 = MOVBim killed $r1, implicit-def dead $st
+    renamable $r0 = SRLri killed $r0, 8, implicit-def $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r1, killed $r0, implicit-def $st
+    JNE %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_no_fold_st_live
+# SRL R0's ST def is live (not dead). Cannot fold.
+# CHECK: SRLri
+# CHECK: SRLri
+# CHECK: Crr
+# CHECK: JNE
+
+# SRLs separated by other non-conflicting instruction.
+# R0 SRL is first, then an unrelated instruction on R3, then R1 SRL.
+---
+name: cb_srls_separated
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1, $r3
+    renamable $r0 = MOVBim killed $r0, implicit-def dead $st
+    renamable $r1 = MOVBim killed $r1, implicit-def dead $st
+    renamable $r0 = SRLri killed $r0, 8, implicit-def dead $st
+    renamable $r3 = INCr killed $r3, implicit-def dead $st
+    renamable $r1 = SRLri killed $r1, 8, implicit-def dead $st
+    Crr killed $r1, killed $r0, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    liveins: $r3
+    $r0 = MOVrr killed $r3, implicit-def dead $st
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: cb_srls_separated
+# SRLs are separated by INC R3 (unrelated). CB folding should still work.
+# CHECK: MOVBim
+# CHECK: MOVBim
+# CHECK-NOT: SRLri
+# CHECK: INCr
+# CHECK: CBrr
+# CHECK: JEQ

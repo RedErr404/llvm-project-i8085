@@ -1,0 +1,381 @@
+# RUN: llc -mtriple=tms9900 -run-pass=tms9900-peephole %s -o - | FileCheck %s
+#
+# Tests for SRL Rx,8 + CI Rx,N -> CI Rx,(N<<8) peephole optimization.
+#
+# When a value with a known-zero low byte is in Rx, SRL Rx,8 shifts the
+# high byte to the low byte for comparison with CI Rx,N.  We can instead
+# skip the shift and compare directly: CI Rx,(N<<8).
+#
+# IMPORTANT: This optimization is ONLY safe when the low byte of Rx is
+# known to be zero before the SRL.  After MOVB (which only sets the high
+# byte, leaving the low byte unchanged), the low byte is indeterminate
+# and the optimization must NOT fire.
+#
+# Saves 2 bytes and ~28 cycles per instance.
+#
+# Safety requirements:
+#   - SRL shift count must be exactly 8
+#   - CI immediate N must be <= 0xFF (so N<<8 fits in 16 bits)
+#   - Same register in SRL and CI
+#   - Rx must be killed at the CI (no later use expects shifted value)
+#   - Low byte of Rx must be zero before SRL (verified by checking the
+#     immediately preceding instruction)
+
+--- |
+  define void @srl8_ci_after_andi() { ret void }
+  define void @srl8_ci_after_sla() { ret void }
+  define void @srl8_ci_after_li() { ret void }
+  define void @srl8_ci_after_clr() { ret void }
+  define void @srl8_ci_max_byte() { ret void }
+  define void @neg_srl8_ci_after_movb() { ret void }
+  define void @neg_srl8_ci_no_prev() { ret void }
+  define void @neg_srl8_ci_n_too_large() { ret void }
+  define void @neg_srl8_ci_rx_not_killed() { ret void }
+  define void @neg_srl8_ci_diff_reg() { ret void }
+  define void @neg_srl_not_8_ci() { ret void }
+  define void @neg_sla8_ci() { ret void }
+  define void @neg_srl8_ci_after_li_nonzero_low() { ret void }
+...
+
+# Positive: ANDI Rx,0xFF00 ensures low byte is zero before SRL
+---
+name: srl8_ci_after_andi
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5
+    renamable $r5 = ANDI killed $r5, -256, implicit-def dead $st
+    renamable $r5 = SRLri killed $r5, 8, implicit-def dead $st
+    CI killed $r5, 42, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: srl8_ci_after_andi
+# SRL should be deleted, CI immediate shifted to 42<<8 = 10752:
+# CHECK: ANDI
+# CHECK-NOT: SRLri
+# CHECK: CI killed $r5, 10752, implicit-def $st
+# CHECK: JEQ
+
+# Positive: SLA Rx,8 ensures low byte is zero before SRL
+---
+name: srl8_ci_after_sla
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r3
+    renamable $r3 = SLAri killed $r3, 8, implicit-def dead $st
+    renamable $r3 = SRLri killed $r3, 8, implicit-def dead $st
+    CI killed $r3, 10, implicit-def $st
+    JNE %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: srl8_ci_after_sla
+# SRL deleted, CI immediate = 10<<8 = 2560:
+# CHECK-NOT: SRLri
+# CHECK: CI killed $r3, 2560, implicit-def $st
+# CHECK: JNE
+
+# Positive: LI Rx,0x4200 (low byte zero) before SRL
+---
+name: srl8_ci_after_li
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r2 = LI 16896, implicit-def dead $st
+    renamable $r2 = SRLri killed $r2, 8, implicit-def dead $st
+    CI killed $r2, 66, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: srl8_ci_after_li
+# SRL deleted, CI immediate = 66<<8 = 16896:
+# CHECK: LI
+# CHECK-NOT: SRLri
+# CHECK: CI killed $r2, 16896, implicit-def $st
+# CHECK: JEQ
+
+# Positive: CLR Rx (both bytes zero) before SRL
+---
+name: srl8_ci_after_clr
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r4 = CLRr implicit-def dead $st
+    renamable $r4 = SRLri killed $r4, 8, implicit-def dead $st
+    CI killed $r4, 0, implicit-def $st
+    JNE %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: srl8_ci_after_clr
+# SRL deleted by SRL+CI fold (CLR has zero low byte).
+# CI Rx,0 then fully eliminated by CI Tier 1 (CLR already set flags).
+# CHECK: CLRr
+# CHECK-NOT: SRLri
+# CHECK-NOT: CI killed
+# CHECK-NOT: MOVrr
+# CHECK: JNE
+
+# Positive: Maximum byte value N=255, after ANDI
+---
+name: srl8_ci_max_byte
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r2
+    renamable $r2 = ANDI killed $r2, -256, implicit-def dead $st
+    renamable $r2 = SRLri killed $r2, 8, implicit-def dead $st
+    CI killed $r2, 255, implicit-def $st
+    JGT %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: srl8_ci_max_byte
+# SRL deleted, CI immediate = 255<<8 = 65280 (0xFF00):
+# CHECK: ANDI
+# CHECK-NOT: SRLri
+# CHECK: CI killed $r2, 65280, implicit-def $st
+# CHECK: JGT
+
+# Negative: After MOVB (low byte is indeterminate, NOT safe)
+---
+name: neg_srl8_ci_after_movb
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r1, $r5
+    renamable $r5 = MOVBim killed $r1, implicit-def dead $st
+    renamable $r5 = SRLri killed $r5, 8, implicit-def dead $st
+    CI killed $r5, 42, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: neg_srl8_ci_after_movb
+# MOVB only sets high byte, low byte unknown -- SRL must remain:
+# CHECK: MOVBim
+# CHECK: SRLri
+# CHECK: CI killed $r5, 42
+# CHECK: JEQ
+
+# Negative: No preceding instruction (livein only)
+---
+name: neg_srl8_ci_no_prev
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5
+    renamable $r5 = SRLri killed $r5, 8, implicit-def dead $st
+    CI killed $r5, 42, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: neg_srl8_ci_no_prev
+# No preceding def of Rx to analyze, SRL must remain:
+# CHECK: SRLri
+# CHECK: CI killed $r5, 42
+# CHECK: JEQ
+
+# Negative: N > 0xFF (N=256, N<<8 = 0x10000 doesn't fit in 16 bits)
+---
+name: neg_srl8_ci_n_too_large
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5
+    renamable $r5 = ANDI killed $r5, -256, implicit-def dead $st
+    renamable $r5 = SRLri killed $r5, 8, implicit-def dead $st
+    CI killed $r5, 256, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: neg_srl8_ci_n_too_large
+# N=256 exceeds 0xFF, SRL must remain:
+# CHECK: SRLri
+# CHECK: CI killed $r5, 256
+# CHECK: JEQ
+
+# Negative: Rx not killed at CI (register used after CI)
+---
+name: neg_srl8_ci_rx_not_killed
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5
+    renamable $r5 = ANDI $r5, -256, implicit-def dead $st
+    renamable $r5 = SRLri $r5, 8, implicit-def dead $st
+    CI $r5, 42, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    liveins: $r5
+    $r0 = MOVrr killed $r5, implicit-def dead $st
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: neg_srl8_ci_rx_not_killed
+# Rx is not killed at CI (used later), SRL must remain:
+# CHECK: SRLri
+# CHECK: CI $r5, 42
+# CHECK: JEQ
+
+# Negative: SRL and CI use different registers
+---
+name: neg_srl8_ci_diff_reg
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5, $r6
+    renamable $r5 = ANDI killed $r5, -256, implicit-def dead $st
+    renamable $r5 = SRLri killed $r5, 8, implicit-def dead $st
+    CI killed $r6, 42, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: neg_srl8_ci_diff_reg
+# Different registers (R5 shifted, R6 compared), SRL must remain:
+# CHECK: SRLri
+# CHECK: CI killed $r6, 42
+# CHECK: JEQ
+
+# Negative: Shift count is not 8
+---
+name: neg_srl_not_8_ci
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5
+    renamable $r5 = ANDI killed $r5, -256, implicit-def dead $st
+    renamable $r5 = SRLri killed $r5, 4, implicit-def dead $st
+    CI killed $r5, 42, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: neg_srl_not_8_ci
+# Shift count is 4, not 8, SRL must remain:
+# CHECK: SRLri
+# CHECK: CI killed $r5, 42
+# CHECK: JEQ
+
+# Negative: SLA (not SRL) + CI -- only SRL is valid for this opt
+---
+name: neg_sla8_ci
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r5
+    renamable $r5 = SLAri killed $r5, 8, implicit-def dead $st
+    CI killed $r5, 42, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: neg_sla8_ci
+# SLA (not SRL) + CI -- this opt only applies to SRL:
+# CHECK: SLAri
+# CHECK: CI killed $r5, 42
+# CHECK: JEQ
+
+# Negative: LI with non-zero low byte
+---
+name: neg_srl8_ci_after_li_nonzero_low
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r5 = LI 16897, implicit-def dead $st
+    renamable $r5 = SRLri killed $r5, 8, implicit-def dead $st
+    CI killed $r5, 42, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: neg_srl8_ci_after_li_nonzero_low
+# LI 0x4201 has non-zero low byte, SRL must remain:
+# CHECK: LI
+# CHECK: SRLri
+# CHECK: CI killed $r5, 42
+# CHECK: JEQ

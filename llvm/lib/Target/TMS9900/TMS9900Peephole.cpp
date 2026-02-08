@@ -20,6 +20,8 @@
 //  - SRL Rx,8 + ANDI Rx,0x00FF -> SWPB Rx + ANDI Rx,0x00FF
 //  - SLA Rx,8 + ANDI Rx,0xFF00 -> SWPB Rx + ANDI Rx,0xFF00
 //  - SLA Rx,8 + MOVB Rx,dst   -> SWPB Rx + MOVB Rx,dst
+//  - SRL Rx,8 + CI Rx,N -> CI Rx,(N<<8) when N<=0xFF and Rx dead after CI
+//  - SRL Rx,8 + SRL Ry,8 + Crr Rx,Ry -> CBrr Rx,Ry (byte compare folding)
 //  - Dead first load when consecutive loads define same register
 //  - AI 0 removed when status flags are dead
 //  - INV Rx + INV Rx (consecutive) -> delete both (double inversion cancels)
@@ -518,128 +520,279 @@ public:
           }
         }
 
-        // Crr elimination: delete Crr Rx,Ry when one operand is provably
-        // zero and the preceding instruction already set flags for the other.
+        // Crr optimizations:
         //
-        // Pattern:   <ALU> TestReg, ...    ; defines TestReg, sets ST
-        //            Crr ZeroReg, TestReg  ; (or Crr TestReg, ZeroReg)
-        //            Jcc label
+        // Opt 1 -- Zero-register elimination:
+        //   Delete Crr Rx,Ry when one operand is provably zero and the
+        //   preceding instruction already set flags for the other.
         //
-        // TMS9900 C instruction encoding: Crr rs1(D), rs2(S).
-        // Hardware sets: EQ if S==D, LGT if S>D, AGT if S>D.
-        //
-        // Case A -- zero in rs1 (D field):
-        //   EQ if rs2==0, LGT if rs2>0, AGT if rs2>0 (signed).
-        //   These match what any ALU instruction sets for rs2.
-        //   Safe for all branch types.
-        //
-        // Case B -- zero in rs2 (S field):
-        //   EQ if rs1==0 (matches), LGT if 0>rs1 (never, doesn't match),
-        //   AGT if 0>rs1 (signed, doesn't match).
-        //   Only EQ flag matches -> safe for JEQ/JNE only.
+        // Opt 2 -- CB folding (byte compare):
+        //   Replace Crr Rx,Ry with CBrr Rx,Ry when both operands were
+        //   produced by SRLri 8 (byte-in-low-position from a MOVB load).
+        //   Delete both SRLs, since CBrr compares HIGH bytes directly
+        //   and the pre-SRL values have the bytes in the HIGH position.
         if (Opc == TMS9900::Crr) {
           Register Rs1 = MI.getOperand(0).getReg(); // D field
           Register Rs2 = MI.getOperand(1).getReg(); // S field
 
-          // Get the immediately preceding non-debug instruction.
-          MachineInstr *Prev = MI.getPrevNode();
-          while (Prev && Prev->isDebugInstr())
-            Prev = Prev->getPrevNode();
-          if (!Prev)
-            continue;
-
-          // Prev must not be a call, branch, or return, must set ST,
-          // and must define one of {Rs1, Rs2} as its primary result
-          // (operand 0 isDef).
-          if (Prev->isCall() || Prev->isBranch() || Prev->isReturn())
-            continue;
-          if (!Prev->modifiesRegister(TMS9900::ST, TRI))
-            continue;
-          if (Prev->getNumOperands() == 0 ||
-              !Prev->getOperand(0).isReg() ||
-              !Prev->getOperand(0).isDef())
-            continue;
-
-          Register PrevDefReg = Prev->getOperand(0).getReg();
-          Register TestReg;   // The register whose flags Prev set.
-          Register ZeroReg;   // The register that must be zero.
-          bool ZeroInRs1;     // True when ZeroReg is rs1 (D field).
-
-          if (PrevDefReg == Rs2 && PrevDefReg != Rs1) {
-            TestReg = Rs2;
-            ZeroReg = Rs1;
-            ZeroInRs1 = true;  // Case A: all flags safe.
-          } else if (PrevDefReg == Rs1 && PrevDefReg != Rs2) {
-            TestReg = Rs1;
-            ZeroReg = Rs2;
-            ZeroInRs1 = false; // Case B: only EQ safe.
-          } else {
-            continue; // Prev doesn't define either Crr operand,
-                       // or both operands are the same register.
-          }
-
-          // Verify ZeroReg is provably zero: walk backward (in this BB)
-          // to find the most recent def of ZeroReg.  It must be CLR or
-          // LI 0, with no intervening instruction that modifies ZeroReg.
-          bool ZeroProven = false;
-          for (MachineInstr *Scan = Prev->getPrevNode(); Scan;
-               Scan = Scan->getPrevNode()) {
-            if (Scan->isDebugInstr())
-              continue;
-            // If this instruction defines ZeroReg, check if it sets it
-            // to zero.
-            if (Scan->modifiesRegister(ZeroReg, TRI)) {
-              unsigned ScanOpc = Scan->getOpcode();
-              if (ScanOpc == TMS9900::CLRr &&
-                  Scan->getOperand(0).getReg() == ZeroReg) {
-                ZeroProven = true;
-              } else if (ScanOpc == TMS9900::LI &&
-                         Scan->getOperand(0).getReg() == ZeroReg &&
-                         Scan->getOperand(1).isImm() &&
-                         static_cast<int16_t>(
-                             Scan->getOperand(1).getImm()) == 0) {
-                ZeroProven = true;
-              }
-              break; // Stop at the first def of ZeroReg.
-            }
-            // If this instruction is a call, it may clobber ZeroReg.
-            if (Scan->isCall())
+          // --- Opt 1: Zero-register elimination ---
+          //
+          // Pattern:   <ALU> TestReg, ...    ; defines TestReg, sets ST
+          //            Crr ZeroReg, TestReg  ; (or Crr TestReg, ZeroReg)
+          //            Jcc label
+          //
+          // TMS9900 C instruction encoding: Crr rs1(D), rs2(S).
+          // Hardware sets: EQ if S==D, LGT if S>D, AGT if S>D.
+          //
+          // Case A -- zero in rs1 (D field):
+          //   EQ if rs2==0, LGT if rs2>0, AGT if rs2>0 (signed).
+          //   These match what any ALU instruction sets for rs2.
+          //   Safe for all branch types.
+          //
+          // Case B -- zero in rs2 (S field):
+          //   EQ if rs1==0 (matches), LGT if 0>rs1 (never, doesn't match),
+          //   AGT if 0>rs1 (signed, doesn't match).
+          //   Only EQ flag matches -> safe for JEQ/JNE only.
+          bool ZeroEliminated = false;
+          do {
+            // Get the immediately preceding non-debug instruction.
+            MachineInstr *Prev = MI.getPrevNode();
+            while (Prev && Prev->isDebugInstr())
+              Prev = Prev->getPrevNode();
+            if (!Prev)
               break;
-          }
 
-          if (!ZeroProven)
+            // Prev must not be a call, branch, or return, must set ST,
+            // and must define one of {Rs1, Rs2} as its primary result
+            // (operand 0 isDef).
+            if (Prev->isCall() || Prev->isBranch() || Prev->isReturn())
+              break;
+            if (!Prev->modifiesRegister(TMS9900::ST, TRI))
+              break;
+            if (Prev->getNumOperands() == 0 ||
+                !Prev->getOperand(0).isReg() ||
+                !Prev->getOperand(0).isDef())
+              break;
+
+            Register PrevDefReg = Prev->getOperand(0).getReg();
+            Register TestReg;   // The register whose flags Prev set.
+            Register ZeroReg;   // The register that must be zero.
+            bool ZeroInRs1;     // True when ZeroReg is rs1 (D field).
+
+            if (PrevDefReg == Rs2 && PrevDefReg != Rs1) {
+              TestReg = Rs2;
+              ZeroReg = Rs1;
+              ZeroInRs1 = true;  // Case A: all flags safe.
+            } else if (PrevDefReg == Rs1 && PrevDefReg != Rs2) {
+              TestReg = Rs1;
+              ZeroReg = Rs2;
+              ZeroInRs1 = false; // Case B: only EQ safe.
+            } else {
+              break; // Prev doesn't define either Crr operand,
+                     // or both operands are the same register.
+            }
+
+            // Verify ZeroReg is provably zero: walk backward (in this BB)
+            // to find the most recent def of ZeroReg.  It must be CLR or
+            // LI 0, with no intervening instruction that modifies ZeroReg.
+            bool ZeroProven = false;
+            for (MachineInstr *Scan = Prev->getPrevNode(); Scan;
+                 Scan = Scan->getPrevNode()) {
+              if (Scan->isDebugInstr())
+                continue;
+              // If this instruction defines ZeroReg, check if it sets it
+              // to zero.
+              if (Scan->modifiesRegister(ZeroReg, TRI)) {
+                unsigned ScanOpc = Scan->getOpcode();
+                if (ScanOpc == TMS9900::CLRr &&
+                    Scan->getOperand(0).getReg() == ZeroReg) {
+                  ZeroProven = true;
+                } else if (ScanOpc == TMS9900::LI &&
+                           Scan->getOperand(0).getReg() == ZeroReg &&
+                           Scan->getOperand(1).isImm() &&
+                           static_cast<int16_t>(
+                               Scan->getOperand(1).getImm()) == 0) {
+                  ZeroProven = true;
+                }
+                break; // Stop at the first def of ZeroReg.
+              }
+              // If this instruction is a call, it may clobber ZeroReg.
+              if (Scan->isCall())
+                break;
+            }
+
+            if (!ZeroProven)
+              break;
+
+            // Verify the next instruction is a conditional branch.
+            MachineInstr *Next = MI.getNextNode();
+            while (Next && Next->isDebugInstr())
+              Next = Next->getNextNode();
+            if (!Next)
+              break;
+            unsigned NextOpc = Next->getOpcode();
+
+            if (ZeroInRs1) {
+              // Case A: all flags match. Any conditional branch is safe.
+              if (NextOpc != TMS9900::JEQ && NextOpc != TMS9900::JNE &&
+                  NextOpc != TMS9900::JGT && NextOpc != TMS9900::JLT &&
+                  NextOpc != TMS9900::JH && NextOpc != TMS9900::JHE &&
+                  NextOpc != TMS9900::JL && NextOpc != TMS9900::JLE)
+                break;
+            } else {
+              // Case B: only EQ flag matches. Only JEQ/JNE are safe.
+              if (NextOpc != TMS9900::JEQ && NextOpc != TMS9900::JNE)
+                break;
+            }
+
+            // Safe to delete the Crr. Update ST liveness on Prev.
+            if (int STIdx = Prev->findRegisterDefOperandIdx(TMS9900::ST,
+                                                            /*isDead=*/true);
+                STIdx != -1) {
+              Prev->getOperand(STIdx).setIsDead(false);
+            }
+
+            MI.eraseFromParent();
+            Changed = true;
+            ZeroEliminated = true;
+          } while (false);
+
+          if (ZeroEliminated)
             continue;
 
-          // Verify the next instruction is a conditional branch.
-          MachineInstr *Next = MI.getNextNode();
-          while (Next && Next->isDebugInstr())
-            Next = Next->getNextNode();
-          if (!Next)
-            continue;
-          unsigned NextOpc = Next->getOpcode();
+          // --- Opt 2: CB folding (byte compare) ---
+          //
+          // Pattern:
+          //   MOVB *Ra, Rx            ; Rx has byte in HIGH position
+          //   MOVB *Rb, Ry            ; Ry has byte in HIGH position
+          //   SRLri Rx, 8             ; shift byte to LOW position
+          //   SRLri Ry, 8             ; shift byte to LOW position
+          //   Crr Rx, Ry              ; compare words (bytes in low position)
+          //   Jcc target
+          //
+          // Becomes:
+          //   MOVB *Ra, Rx            ; Rx has byte in HIGH position
+          //   MOVB *Rb, Ry            ; Ry has byte in HIGH position
+          //   CBrr Rx, Ry             ; compare HIGH bytes directly
+          //   Jcc target
+          //
+          // CB compares the high bytes of both operands and sets EQ/LGT/AGT
+          // identically to how C would compare the full words when those
+          // words contain zero-extended byte values in the low position.
+          //
+          // Safety:
+          //  - Both Crr operands must be killed (dead after compare), since
+          //    the registers will retain their un-shifted values (byte in
+          //    high position) instead of the shifted values.
+          //  - Both operands must be defined by SRLri X,8 with no
+          //    intervening use of those registers between SRL and Crr.
+          //  - No intervening instruction between the SRLs and Crr may
+          //    read ST (we're deleting SRLs which set ST).
+          //
+          // Savings: 8 bytes (two SRL instructions), ~56 cycles.
+          do {
+            // Both operands must be killed at the Crr.
+            if (!MI.getOperand(0).isKill() || !MI.getOperand(1).isKill())
+              break;
 
-          if (ZeroInRs1) {
-            // Case A: all flags match. Any conditional branch is safe.
-            if (NextOpc != TMS9900::JEQ && NextOpc != TMS9900::JNE &&
-                NextOpc != TMS9900::JGT && NextOpc != TMS9900::JLT &&
-                NextOpc != TMS9900::JH && NextOpc != TMS9900::JHE &&
-                NextOpc != TMS9900::JL && NextOpc != TMS9900::JLE)
-              continue;
-          } else {
-            // Case B: only EQ flag matches. Only JEQ/JNE are safe.
-            if (NextOpc != TMS9900::JEQ && NextOpc != TMS9900::JNE)
-              continue;
-          }
+            // Rs1 and Rs2 must be different registers.
+            if (Rs1 == Rs2)
+              break;
 
-          // Safe to delete the Crr. Update ST liveness on Prev.
-          if (int STIdx = Prev->findRegisterDefOperandIdx(TMS9900::ST,
-                                                          /*isDead=*/true);
-              STIdx != -1) {
-            Prev->getOperand(STIdx).setIsDead(false);
-          }
+            // Walk backward to find the SRLri instructions that define
+            // Rs1 and Rs2.  They must be adjacent or only separated by
+            // each other / debug instructions, and between them and
+            // the Crr there must be no reads/writes of Rs1 or Rs2.
+            MachineInstr *Srl1 = nullptr; // SRLri for Rs1
+            MachineInstr *Srl2 = nullptr; // SRLri for Rs2
+            bool Unsafe = false;
 
-          MI.eraseFromParent();
-          Changed = true;
+            for (MachineInstr *Scan = MI.getPrevNode(); Scan;
+                 Scan = Scan->getPrevNode()) {
+              if (Scan->isDebugInstr())
+                continue;
+
+              // Check if this instruction defines Rs1 or Rs2.
+              bool DefsRs1 = !Srl1 && Scan->modifiesRegister(Rs1, TRI);
+              bool DefsRs2 = !Srl2 && Scan->modifiesRegister(Rs2, TRI);
+
+              if (DefsRs1) {
+                // Must be SRLri Rs1, 8.
+                if (Scan->getOpcode() != TMS9900::SRLri ||
+                    Scan->getOperand(0).getReg() != Rs1 ||
+                    !Scan->getOperand(2).isImm() ||
+                    Scan->getOperand(2).getImm() != 8) {
+                  Unsafe = true;
+                  break;
+                }
+                Srl1 = Scan;
+              }
+
+              if (DefsRs2) {
+                // Must be SRLri Rs2, 8.
+                if (Scan->getOpcode() != TMS9900::SRLri ||
+                    Scan->getOperand(0).getReg() != Rs2 ||
+                    !Scan->getOperand(2).isImm() ||
+                    Scan->getOperand(2).getImm() != 8) {
+                  Unsafe = true;
+                  break;
+                }
+                Srl2 = Scan;
+              }
+
+              // If we found both SRLs, we're done scanning.
+              if (Srl1 && Srl2)
+                break;
+
+              // If this instruction reads a register we haven't found
+              // the SRL for yet (other than a def we just matched),
+              // the pattern is broken: there's a use between SRL and Crr.
+              if (!Srl1 && !DefsRs1 && Scan->readsRegister(Rs1, TRI)) {
+                Unsafe = true;
+                break;
+              }
+              if (!Srl2 && !DefsRs2 && Scan->readsRegister(Rs2, TRI)) {
+                Unsafe = true;
+                break;
+              }
+
+              // Bail on calls/branches (they may clobber registers or
+              // read ST).
+              if (Scan->isCall() || Scan->isBranch() || Scan->isReturn()) {
+                Unsafe = true;
+                break;
+              }
+            }
+
+            if (Unsafe || !Srl1 || !Srl2)
+              break;
+
+            // Verify the SRL ST defs are dead (no consumer between SRL
+            // and Crr reads ST).  The SRLs should already have dead ST
+            // since the Crr (or a later instruction) sets ST.
+            if (!Srl1->registerDefIsDead(TMS9900::ST, TRI) ||
+                !Srl2->registerDefIsDead(TMS9900::ST, TRI))
+              break;
+
+            // Build CBrr with the same operands as the Crr.
+            DebugLoc DL = MI.getDebugLoc();
+            MachineInstrBuilder MIB =
+                BuildMI(MBB, MI, DL, TII->get(TMS9900::CBrr));
+            MIB.addReg(Rs1, RegState::Kill);
+            MIB.addReg(Rs2, RegState::Kill);
+
+            // CBrr implicitly defs ST (live, consumed by the branch).
+            // The implicit def is added automatically by BuildMI from
+            // the instruction descriptor.
+
+            // Delete the Crr and both SRLri instructions.
+            // Update the iterator if it points at one of the SRLs.
+            MI.eraseFromParent();
+            Srl1->eraseFromParent();
+            Srl2->eraseFromParent();
+            Changed = true;
+          } while (false);
+
           continue;
         }
 
@@ -698,6 +851,101 @@ public:
             }
           }
 
+          // Case 3: SRL Rx,8 + CI Rx,N -> CI Rx,(N<<8)
+          //
+          // Byte loads produce values in the HIGH byte of a register.
+          // The idiom SRL Rx,8 shifts the byte to the low position,
+          // then CI Rx,N compares against a small constant.  Instead,
+          // we can skip the SRL and compare the un-shifted value
+          // directly: CI Rx,(N<<8).
+          //
+          // IMPORTANT: SRL Rx,8 zeroes the high byte as a side effect
+          // of shifting right.  If the LOW byte of Rx is unknown before
+          // the SRL (e.g. after MOVB which only sets the high byte,
+          // leaving the low byte unchanged), skipping SRL leaves that
+          // garbage in the low byte and the 16-bit CI comparison
+          // becomes incorrect.  We must verify that the low byte of Rx
+          // is known-zero before the SRL to ensure CI Rx,(N<<8)
+          // produces the same comparison result as SRL+CI Rx,N.
+          //
+          // Safety:
+          //  - Only SRL (not SLA) with count == 8.
+          //  - N must fit in 8 bits (N <= 0xFF) so N<<8 fits in 16 bits.
+          //  - Rx must be dead after the CI instruction, because we are
+          //    leaving Rx un-shifted (the byte is still in the high
+          //    position instead of the low position).  We check that the
+          //    CI operand has isKill(), meaning no later instruction
+          //    reads Rx.
+          //  - The low byte of Rx must be zero before SRL.  We check
+          //    that the immediately preceding def of Rx is a word-width
+          //    instruction with a known-zero low byte (e.g. ANDI with
+          //    mask & 0xFF == 0, SLA by >= 8, LI with imm & 0xFF == 0,
+          //    or CLR).  MOVB does NOT qualify since it only sets the
+          //    high byte and leaves the low byte unchanged.
+          //  - No instruction between SRL and CI reads ST (SRL sets
+          //    flags; we're removing it, so the flags must not be
+          //    consumed).  Since they are adjacent, this is satisfied.
+          //
+          // Saves 2 bytes (SRL is 2 bytes) and ~28 cycles per instance.
+          if (!CanReplace && Opc == TMS9900::SRLri &&
+              Next->getOpcode() == TMS9900::CI &&
+              Next->getOperand(0).getReg() == Rx &&
+              Next->getOperand(1).isImm()) {
+            int64_t CIImm = Next->getOperand(1).getImm();
+            uint16_t N = static_cast<uint16_t>(CIImm);
+            if (N <= 0xFF && Next->getOperand(0).isKill()) {
+              // Verify the low byte of Rx is zero before the SRL.
+              // Walk backward to the immediately preceding non-debug
+              // instruction that defines Rx.
+              bool LowByteZero = false;
+              MachineInstr *Prev = MI.getPrevNode();
+              while (Prev && Prev->isDebugInstr())
+                Prev = Prev->getPrevNode();
+              if (Prev && Prev->modifiesRegister(Rx, TRI)) {
+                unsigned PrevOpc = Prev->getOpcode();
+                // ANDI Rx, mask: low byte zero if mask & 0xFF == 0.
+                if (PrevOpc == TMS9900::ANDI &&
+                    Prev->getOperand(0).getReg() == Rx &&
+                    Prev->getOperand(2).isImm()) {
+                  uint16_t Mask =
+                      static_cast<uint16_t>(Prev->getOperand(2).getImm());
+                  if ((Mask & 0xFF) == 0)
+                    LowByteZero = true;
+                }
+                // SLA Rx,N where N >= 8: shifts left, zeroing low byte.
+                else if (PrevOpc == TMS9900::SLAri &&
+                         Prev->getOperand(0).getReg() == Rx &&
+                         Prev->getOperand(2).isImm() &&
+                         Prev->getOperand(2).getImm() >= 8) {
+                  LowByteZero = true;
+                }
+                // LI Rx, imm: low byte zero if imm & 0xFF == 0.
+                else if (PrevOpc == TMS9900::LI &&
+                         Prev->getOperand(0).getReg() == Rx &&
+                         Prev->getOperand(1).isImm()) {
+                  uint16_t Imm =
+                      static_cast<uint16_t>(Prev->getOperand(1).getImm());
+                  if ((Imm & 0xFF) == 0)
+                    LowByteZero = true;
+                }
+                // CLR Rx: both bytes zero.
+                else if (PrevOpc == TMS9900::CLRr &&
+                         Prev->getOperand(0).getReg() == Rx) {
+                  LowByteZero = true;
+                }
+              }
+
+              if (LowByteZero) {
+                // Replace CI Rx,N with CI Rx,(N<<8) and delete the SRL.
+                Next->getOperand(1).setImm(static_cast<int64_t>(N << 8));
+
+                MI.eraseFromParent();
+                Changed = true;
+                continue;
+              }
+            }
+          }
+
           if (!CanReplace)
             continue;
 
@@ -711,14 +959,8 @@ public:
           MIB.addReg(Rx, RegState::Define | (DeadDef ? RegState::Dead : 0));
           MIB.addReg(Rx, KillUse ? RegState::Kill : 0);
 
-          // SWPBr implicitly defs ST.  The shift's ST def is dead
-          // (the next instruction will set ST), so mark it dead on SWPB.
-          if (int STIdx =
-                  MIB->findRegisterDefOperandIdx(TMS9900::ST, true);
-              STIdx != -1 &&
-              MI.registerDefIsDead(TMS9900::ST, TRI)) {
-            MIB->getOperand(STIdx).setIsDead();
-          }
+          // SWPB does not affect ST (unlike the SRL/SLA it replaces),
+          // so flags set before the shift are preserved across SWPB.
 
           MI.eraseFromParent();
           Changed = true;
