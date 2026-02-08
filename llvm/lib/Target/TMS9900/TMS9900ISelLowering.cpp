@@ -422,6 +422,10 @@ SDValue TMS9900TargetLowering::LowerOperation(SDValue Op,
     return LowerShift32(Op, DAG);
   case ISD::VASTART:
     return LowerVASTART(Op, DAG);
+  case ISD::RETURNADDR:
+    return LowerRETURNADDR(Op, DAG);
+  case ISD::FRAMEADDR:
+    return LowerFRAMEADDR(Op, DAG);
   }
 }
 
@@ -861,6 +865,50 @@ SDValue TMS9900TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const
   // Store the frame index to the va_list pointer
   return DAG.getStore(Op.getOperand(0), DL, FrameIndex, Ptr,
                       MachinePointerInfo(SV));
+}
+
+SDValue TMS9900TargetLowering::LowerRETURNADDR(SDValue Op,
+                                                SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  MFI.setReturnAddressIsTaken(true);
+
+  if (verifyReturnAddressArgumentIsConstant(Op, DAG))
+    return SDValue();
+
+  EVT VT = Op.getValueType();
+  SDLoc DL(Op);
+  unsigned Depth = Op.getConstantOperandVal(0);
+
+  if (Depth > 0) {
+    // We don't have frame pointers to walk the call stack.
+    // Return null for depth > 0.
+    return DAG.getConstant(0, DL, VT);
+  }
+
+  // Depth 0: return the current return address from R11 (link register).
+  // Mark R11 as a live-in so the register allocator knows it's used.
+  Register Reg = MF.addLiveIn(TMS9900::R11, &TMS9900::GR16RegClass);
+  return DAG.getCopyFromReg(DAG.getEntryNode(), DL, Reg, VT);
+}
+
+SDValue TMS9900TargetLowering::LowerFRAMEADDR(SDValue Op,
+                                               SelectionDAG &DAG) const {
+  MachineFrameInfo &MFI = DAG.getMachineFunction().getFrameInfo();
+  MFI.setFrameAddressIsTaken(true);
+
+  EVT VT = Op.getValueType();
+  SDLoc DL(Op);
+  unsigned Depth = Op.getConstantOperandVal(0);
+
+  if (Depth > 0) {
+    // No frame pointer chain to walk. Return null.
+    return DAG.getConstant(0, DL, VT);
+  }
+
+  // Depth 0: return the stack pointer (R10). TMS9900 does not use a
+  // dedicated frame pointer, so SP is the best approximation.
+  return DAG.getCopyFromReg(DAG.getEntryNode(), DL, TMS9900::R10, VT);
 }
 
 SDValue TMS9900TargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {

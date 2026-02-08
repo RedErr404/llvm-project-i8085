@@ -4,10 +4,7 @@
 ; On TMS9900, the return address lives in R11 (the link register).
 ; For depth 0, this should simply copy R11 to the return register.
 ;
-; XFAIL: *
-; NOTE: This test is expected to fail because the TMS9900 backend does not
-; yet fully implement RETURNADDR lowering (crashes in MCInstLower).
-; When the bug is fixed, remove the XFAIL line.
+; The TMS9900 backend now correctly lowers RETURNADDR to a copy from R11.
 
 declare ptr @llvm.returnaddress(i32)
 
