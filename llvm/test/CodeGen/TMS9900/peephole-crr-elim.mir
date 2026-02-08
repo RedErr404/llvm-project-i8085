@@ -1,0 +1,127 @@
+# RUN: llc -mtriple=tms9900 -run-pass=tms9900-peephole %s -o - | FileCheck %s
+#
+# Tests for Crr (register-register compare) elimination when one operand
+# is provably zero and the preceding instruction already set flags.
+#
+# Case A: zero in rs1 (D field) -- all flags match, safe for any branch.
+# Case B: zero in rs2 (S field) -- only EQ matches, safe for JEQ/JNE only.
+#
+# Test cases:
+#   - CLR Ry; Crr Rx,Ry; JNE -> Crr deleted (Case A, zero in D)
+#   - CLR Rx; Crr Rx,Ry; JEQ -> Crr deleted (Case B, zero in S, JEQ safe)
+#   - CLR Rx; Crr Rx,Ry; JGT -> Crr NOT deleted (Case B, JGT unsafe)
+#   - No zero register; Crr kept
+
+--- |
+  define i16 @crr_case_a_clr_zero() { ret i16 0 }
+  define i16 @crr_case_b_jeq() { ret i16 0 }
+  define i16 @crr_case_b_jgt_unsafe() { ret i16 0 }
+  define i16 @crr_no_zero_reg() { ret i16 0 }
+...
+
+# Case A: CLR R2 proves R2 is zero. ANDI R5,1 sets flags on R5.
+# Crr R2,R5 has zero in rs1 (D field) -> safe for JNE.
+---
+name: crr_case_a_clr_zero
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r2 = CLRr implicit-def dead $st
+    renamable $r5 = IMPLICIT_DEF
+    renamable $r5 = ANDI killed $r5, 1, implicit-def dead $st
+    Crr killed $r2, killed $r5, implicit-def $st
+    JNE %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: crr_case_a_clr_zero
+# R2 is zero (CLR), ANDI sets flags on R5. Crr is redundant (Case A).
+# CHECK: ANDI
+# CHECK-NOT: Crr
+# CHECK: JNE
+
+# Case B: CLR R1 proves R1 is zero. SRL R4,8 sets flags on R4.
+# Crr R4,R1 has zero in rs2 (S field) -> safe for JEQ.
+---
+name: crr_case_b_jeq
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r1 = CLRr implicit-def dead $st
+    renamable $r4 = IMPLICIT_DEF
+    renamable $r4 = SRLri killed $r4, 8, implicit-def dead $st
+    Crr killed $r4, killed $r1, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: crr_case_b_jeq
+# R1 is zero (CLR), SRL sets flags on R4. Case B with JEQ: safe.
+# CHECK: SRLri
+# CHECK-NOT: Crr
+# CHECK: JEQ
+
+# Case B: CLR R1 proves R1 is zero. SRL R4,8 sets flags on R4.
+# Crr R4,R1 has zero in rs2 (S field) -> NOT safe for JGT.
+---
+name: crr_case_b_jgt_unsafe
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r1 = CLRr implicit-def dead $st
+    renamable $r4 = IMPLICIT_DEF
+    renamable $r4 = SRLri killed $r4, 8, implicit-def dead $st
+    Crr killed $r4, killed $r1, implicit-def $st
+    JGT %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: crr_case_b_jgt_unsafe
+# Case B with JGT: LGT/AGT flags don't match. Crr must remain.
+# CHECK: SRLri
+# CHECK: Crr
+# CHECK: JGT
+
+# Neither operand is provably zero -> Crr must remain.
+---
+name: crr_no_zero_reg
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    renamable $r3 = IMPLICIT_DEF
+    renamable $r4 = IMPLICIT_DEF
+    renamable $r3 = ANDI killed $r3, 7, implicit-def dead $st
+    Crr killed $r3, killed $r4, implicit-def $st
+    JEQ %bb.1, implicit $st
+
+  bb.2:
+    RET
+
+  bb.1:
+    RET
+...
+
+# CHECK-LABEL: name: crr_no_zero_reg
+# Neither R3 nor R4 is provably zero. Crr must remain.
+# CHECK: ANDI
+# CHECK: Crr
+# CHECK: JEQ

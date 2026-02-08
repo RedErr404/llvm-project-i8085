@@ -1,0 +1,74 @@
+# RUN: llc -mtriple=tms9900 -run-pass=tms9900-peephole %s -o - | FileCheck %s
+#
+# Tests for double INV cancellation in the peephole pass.
+#
+# Two consecutive INV Rx; INV Rx on the same register cancel each other.
+# This pattern arises from AND pseudo expansion when two consecutive ANDs
+# share the same source register: the first AND's restore INV and the
+# second AND's initial INV cancel.
+#
+# Test cases:
+#   - INV R3; INV R3 -> both deleted (ST dead)
+#   - INV R3; MOV R3,R4; INV R3 -> NOT deleted (intervening use)
+#   - INV R3; INV R4 -> NOT deleted (different registers)
+
+--- |
+  define i16 @double_inv_cancel() { ret i16 0 }
+  define i16 @double_inv_intervening_use() { ret i16 0 }
+  define i16 @double_inv_diff_regs() { ret i16 0 }
+...
+
+# Two consecutive INV on the same register with dead ST -> both deleted.
+---
+name: double_inv_cancel
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r3
+    renamable $r3 = INVr killed $r3, implicit-def dead $st
+    renamable $r3 = INVr killed $r3, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: double_inv_cancel
+# Both INVs should be deleted (they cancel each other).
+# CHECK-NOT: INVr
+# CHECK: RET
+
+# INV R3; MOV R3,R4; INV R3 -> NOT deleted (intervening use of R3).
+---
+name: double_inv_intervening_use
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r3
+    renamable $r3 = INVr killed $r3, implicit-def dead $st
+    renamable $r4 = MOVrr $r3, implicit-def dead $st
+    renamable $r3 = INVr killed $r3, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: double_inv_intervening_use
+# INVs are separated by a use of R3 -- both must remain.
+# CHECK: INVr
+# CHECK: MOVrr
+# CHECK: INVr
+# CHECK: RET
+
+# INV R3; INV R4 -> NOT deleted (different registers).
+---
+name: double_inv_diff_regs
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r3, $r4
+    renamable $r3 = INVr killed $r3, implicit-def dead $st
+    renamable $r4 = INVr killed $r4, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: double_inv_diff_regs
+# Different registers -- both INVs must remain.
+# CHECK: INVr{{.*}}$r3
+# CHECK: INVr{{.*}}$r4
+# CHECK: RET

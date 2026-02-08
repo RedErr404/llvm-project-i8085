@@ -1,0 +1,92 @@
+# RUN: llc -mtriple=tms9900 -run-pass=tms9900-peephole %s -o - | FileCheck %s
+#
+# Tests for redundant consecutive load elimination in the peephole pass.
+#
+# When two consecutive instructions both define the same register and the
+# first value is never read, the first instruction is deleted.
+#
+# Test cases:
+#   - MOV @foo,R3; MOV @bar,R3 -> first MOV deleted
+#   - LI R5,100; LI R5,200 -> first LI deleted
+#   - MOV @foo,R3; A R3,R4; MOV @bar,R3 -> first kept (used by A)
+#   - MOV @foo,R3; MOV @bar,R4 -> both kept (different regs)
+
+--- |
+  @foo = external global i16
+  @bar = external global i16
+  define i16 @redund_mov_mov() { ret i16 0 }
+  define i16 @redund_li_li() { ret i16 0 }
+  define i16 @no_redund_used() { ret i16 0 }
+  define i16 @no_redund_diff_regs() { ret i16 0 }
+...
+
+# Two consecutive MOV loads to same register -> first deleted.
+---
+name: redund_mov_mov
+tracksRegLiveness: true
+body: |
+  bb.0:
+    renamable $r3 = MOVam @foo, implicit-def dead $st
+    renamable $r3 = MOVam @bar, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: redund_mov_mov
+# First MOV should be deleted since R3 is immediately redefined.
+# CHECK-NOT: MOVam{{.*}}@foo
+# CHECK: MOVam{{.*}}@bar
+# CHECK: RET
+
+# Two consecutive LI to same register -> first deleted.
+---
+name: redund_li_li
+tracksRegLiveness: true
+body: |
+  bb.0:
+    renamable $r5 = LI 100, implicit-def dead $st
+    renamable $r5 = LI 200, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: redund_li_li
+# First LI should be eliminated since R5 is immediately redefined.
+# CHECK-NOT: LI{{.*}}100
+# CHECK: LI{{.*}}200
+# CHECK: RET
+
+# First MOV is used by A instruction -> NOT deleted.
+---
+name: no_redund_used
+tracksRegLiveness: true
+body: |
+  bb.0:
+    renamable $r4 = IMPLICIT_DEF
+    renamable $r3 = MOVam @foo, implicit-def dead $st
+    renamable $r4 = Arr killed $r4, $r3, implicit-def dead $st
+    renamable $r3 = MOVam @bar, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: no_redund_used
+# R3 is read by Arr between the two MOVs -- first MOV must remain.
+# CHECK: MOVam{{.*}}@foo
+# CHECK: Arr
+# CHECK: MOVam{{.*}}@bar
+# CHECK: RET
+
+# Two MOVs to different registers -> both kept.
+---
+name: no_redund_diff_regs
+tracksRegLiveness: true
+body: |
+  bb.0:
+    renamable $r3 = MOVam @foo, implicit-def dead $st
+    renamable $r4 = MOVam @bar, implicit-def dead $st
+    RET
+...
+
+# CHECK-LABEL: name: no_redund_diff_regs
+# Different destination registers -- both must remain.
+# CHECK: MOVam{{.*}}@foo
+# CHECK: MOVam{{.*}}@bar
+# CHECK: RET
