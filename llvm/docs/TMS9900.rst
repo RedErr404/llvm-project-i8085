@@ -1,0 +1,201 @@
+================================
+User Guide for TMS9900 Backend
+================================
+
+.. contents::
+   :local:
+
+Introduction
+============
+
+The TMS9900 target provides code generation for the Texas Instruments TMS9900
+microprocessor. It lives in the ``llvm/lib/Target/TMS9900`` directory.
+
+The TMS9900 was the first single-chip 16-bit microprocessor, introduced by
+Texas Instruments in 1976. It is best known for its use in the TI-99/4A home
+computer (1981). The architecture is notable for its memory-mapped register
+file accessed through a Workspace Pointer (WP), which enables fast context
+switching via the BLWP instruction.
+
+Architecture Overview
+=====================
+
+- 16-bit word size, big-endian byte ordering
+- 16 general-purpose registers (R0--R15), memory-mapped via Workspace Pointer
+- No hardware stack; the stack pointer (R10) is a software convention
+- Hardware multiply (MPY: 16x16 -> 32-bit result)
+- Hardware divide (DIV: 32-bit / 16-bit -> 16-bit quotient and remainder)
+- Auto-increment addressing mode (source operand only)
+- SWPB byte-swap instruction
+- CRU bit-addressable I/O subsystem
+- Workspace-based interrupt handling (BLWP/RTWP)
+
+Target Triple
+=============
+
+The target triple for TMS9900 is simply ``tms9900``:
+
+.. code-block:: bash
+
+   clang --target=tms9900 -c source.c
+
+Data Types
+==========
+
+.. table:: C Data Type Sizes and Alignments
+
+   ===============  ========  ===========
+   C Type           Size      Alignment
+   ===============  ========  ===========
+   ``char``         8-bit     1 byte
+   ``short``        16-bit    2 bytes
+   ``int``          16-bit    2 bytes
+   ``long``         32-bit    2 bytes
+   ``long long``    64-bit    2 bytes
+   ``float``        32-bit    2 bytes
+   ``double``       64-bit    2 bytes
+   ``pointer``      16-bit    2 bytes
+   ===============  ========  ===========
+
+Note that ``int`` is 16 bits wide, matching the native word size of the
+processor. This means ``UINT_MAX`` is 65535 (0xFFFF) and ``INT_MAX`` is
+32767 (0x7FFF).
+
+Calling Convention
+==================
+
+Registers
+---------
+
+.. table:: Register Usage
+
+   ===========  ==========================================
+   Register     Usage
+   ===========  ==========================================
+   ``R0``       Return value (low half of i32 return)
+   ``R1``       Return value (high half of i32 return) / argument
+   ``R1--R9``   Argument passing, caller-saved
+   ``R10``      Stack pointer
+   ``R11``      Link register (return address)
+   ``R12``      General purpose (reserved with ``-mattr=+reserve-cru``)
+   ``R13--R15`` Callee-saved
+   ===========  ==========================================
+
+Arguments are passed in registers R1 through R9. 32-bit values occupy two
+consecutive registers (e.g., R1:R2 for the first 32-bit argument). If all
+argument registers are exhausted, remaining arguments are passed on the stack.
+
+The return value is placed in R0 for 16-bit values, or R0:R1 for 32-bit values.
+
+Toolchain Usage
+===============
+
+The TMS9900 backend integrates with the standard LLVM/Clang toolchain:
+
+.. code-block:: bash
+
+   # Compile C to object file
+   clang --target=tms9900 -O2 -c source.c -o source.o
+
+   # Link with a linker script
+   ld.lld -T linker.ld startup.o source.o -o program.elf
+
+   # Extract raw binary
+   llvm-objcopy -O binary program.elf program.bin
+
+   # Disassemble
+   llvm-objdump -d program.elf
+
+Freestanding mode is typical for TMS9900 targets, as there is no hosted
+operating system support:
+
+.. code-block:: bash
+
+   clang --target=tms9900 -O2 -ffreestanding -c source.c -o source.o
+
+Subtarget Features
+==================
+
+.. table:: Subtarget Features
+
+   =================  ===============  ==========================================
+   Feature            Default          Description
+   =================  ===============  ==========================================
+   ``reserve-cru``    Off              Reserve R12 for CRU I/O base address
+   =================  ===============  ==========================================
+
+Use ``-mattr=+reserve-cru`` when your program uses CRU bit-addressable I/O
+instructions (TB, SBZ, SBO, LDCR, STCR), which require R12 to hold the CRU
+base address.
+
+Instruction Set
+===============
+
+The backend supports the full TMS9900 instruction set, including:
+
+- **Arithmetic**: A, AB, S, SB, INC, INCT, DEC, DECT, NEG, ABS, MPY, DIV
+- **Logical**: AND, ANDI, OR, ORI, XOR, INV, CLR, SETO
+- **Shift**: SLA, SRA, SRL, SRC
+- **Comparison**: C, CB, CI, COC, CZC
+- **Branch**: B, BL, BLWP, RTWP, JMP, JEQ, JNE, JGT, JLT, JH, JHE, JL, JLE, JOC, JNC, JNO, JOP
+- **Data movement**: MOV, MOVB, SWPB, LI, LIMI, LWPI, STST, STWP
+- **CRU I/O**: SBO, SBZ, TB, LDCR, STCR
+- **Miscellaneous**: NOP, IDLE, RSET, CKOF, CKON, LREX
+
+Known Limitations
+=================
+
+- **No hardware floating point.** All floating-point operations use a
+  software floating-point library (soft-float). The compiler automatically
+  generates calls to soft-float routines.
+
+- **R0 cannot be used as an index register.** The encoding ``@offset(R0)``
+  is interpreted by the hardware as symbolic/absolute addressing
+  ``@address``. The register allocator is aware of this constraint.
+  Note that ``*R0`` and ``*R0+`` (indirect and auto-increment) work correctly.
+
+- **No atomic instructions.** The TMS9900 is a single-core processor, so
+  all memory operations are inherently atomic at the instruction level.
+
+- **``llvm.returnaddress`` only supports depth 0.** Since the TMS9900 has
+  no hardware stack frame chain, only the current return address (in R11)
+  can be retrieved.
+
+- **Build note for -O0.** When compiling large functions (such as soft-float
+  routines) at ``-O0``, use ``-mno-relax-all`` to avoid "fixup value out of
+  range" errors from the assembler.
+
+Runtime Library
+===============
+
+The TMS9900 backend requires runtime library support for operations that
+cannot be performed natively. Hand-optimized assembly implementations are
+provided in ``libtms9900/builtins/``.
+
+32-bit Operations
+-----------------
+
+- ``__mulsi3`` -- 32-bit multiplication
+- ``__divsi3`` -- signed 32-bit division
+- ``__udivsi3`` -- unsigned 32-bit division
+- ``__modsi3`` -- signed 32-bit modulo
+- ``__umodsi3`` -- unsigned 32-bit modulo
+- ``__ashlsi3`` -- 32-bit left shift
+- ``__ashrsi3`` -- 32-bit arithmetic right shift
+- ``__lshrsi3`` -- 32-bit logical right shift
+
+64-bit Operations
+-----------------
+
+- ``__muldi3`` -- 64-bit multiplication
+- ``__divdi3`` -- signed 64-bit division
+- ``__udivdi3`` -- unsigned 64-bit division
+- ``__moddi3`` -- signed 64-bit modulo
+- ``__umoddi3`` -- unsigned 64-bit modulo
+
+Memory Operations
+-----------------
+
+- ``memcpy`` -- optimized using auto-increment addressing
+- ``memset`` -- optimized for word-aligned fills
+- ``memmove`` -- handles overlapping regions correctly

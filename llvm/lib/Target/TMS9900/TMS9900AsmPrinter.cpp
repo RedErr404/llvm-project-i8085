@@ -20,11 +20,6 @@
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
-#include "llvm/CodeGen/MachineModuleInfo.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/DerivedTypes.h"
-#include "llvm/IR/Mangler.h"
-#include "llvm/IR/Module.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCStreamer.h"
@@ -38,9 +33,8 @@ using namespace llvm;
 
 namespace {
 
-// Get register name from generated code
+// Map MCRegister to printable name for the AsmPrinter.
 static const char *getRegisterName(MCRegister Reg) {
-  // We need to generate this table. For now, use a simple switch.
   switch (Reg) {
   case TMS9900::R0: return "R0";
   case TMS9900::R1: return "R1";
