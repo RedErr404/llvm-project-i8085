@@ -1557,58 +1557,73 @@ skip_normal_jump:
     return DoneBB;
   }
 
-  case TMS9900::SLA_VAR: {
-    // Variable shift left: MOV $cnt, R0 + SLA $rs, 0
-    Register DstReg = MI.getOperand(0).getReg();
-    Register SrcReg = MI.getOperand(1).getReg();
-    Register CntReg = MI.getOperand(2).getReg();
-
-    // MOV $cnt, R0 (shift count to R0)
-    BuildMI(*BB, MI, DL, TII.get(TMS9900::MOVrr), TMS9900::R0)
-        .addReg(CntReg);
-
-    // SLA $rs, 0 (shift using R0 as count)
-    BuildMI(*BB, MI, DL, TII.get(TMS9900::SLAr0), DstReg)
-        .addReg(SrcReg);
-
-    MI.eraseFromParent();
-    return BB;
-  }
-
-  case TMS9900::SRA_VAR: {
-    // Variable shift right arithmetic: MOV $cnt, R0 + SRA $rs, 0
-    Register DstReg = MI.getOperand(0).getReg();
-    Register SrcReg = MI.getOperand(1).getReg();
-    Register CntReg = MI.getOperand(2).getReg();
-
-    // MOV $cnt, R0 (shift count to R0)
-    BuildMI(*BB, MI, DL, TII.get(TMS9900::MOVrr), TMS9900::R0)
-        .addReg(CntReg);
-
-    // SRA $rs, 0 (shift using R0 as count)
-    BuildMI(*BB, MI, DL, TII.get(TMS9900::SRAr0), DstReg)
-        .addReg(SrcReg);
-
-    MI.eraseFromParent();
-    return BB;
-  }
-
+  case TMS9900::SLA_VAR:
+  case TMS9900::SRA_VAR:
   case TMS9900::SRL_VAR: {
-    // Variable shift right logical: MOV $cnt, R0 + SRL $rs, 0
+    // Variable shift: MOV $cnt, R0 + shift $rs, 0
+    // TMS9900 hardware quirk: when count field is 0 (meaning "use R0"),
+    // and R0 is also 0, the shift count becomes 16 (not 0).
+    // We must guard against this by skipping the shift when count=0.
+    //
+    // Expansion:
+    //   MOV  $cnt, R0       ; sets flags
+    //   JEQ  DoneBB         ; if count=0, skip shift
+    //   SLA/SRA/SRL $rs, 0  ; shift by R0
+    // DoneBB:
+    //   PHI($dst, shifted from ShiftBB, original from StartBB)
+
     Register DstReg = MI.getOperand(0).getReg();
     Register SrcReg = MI.getOperand(1).getReg();
     Register CntReg = MI.getOperand(2).getReg();
 
-    // MOV $cnt, R0 (shift count to R0)
-    BuildMI(*BB, MI, DL, TII.get(TMS9900::MOVrr), TMS9900::R0)
-        .addReg(CntReg);
+    unsigned ShiftOpc;
+    switch (MI.getOpcode()) {
+    case TMS9900::SLA_VAR: ShiftOpc = TMS9900::SLAr0; break;
+    case TMS9900::SRA_VAR: ShiftOpc = TMS9900::SRAr0; break;
+    case TMS9900::SRL_VAR: ShiftOpc = TMS9900::SRLr0; break;
+    default: llvm_unreachable("unexpected opcode");
+    }
 
-    // SRL $rs, 0 (shift using R0 as count)
-    BuildMI(*BB, MI, DL, TII.get(TMS9900::SRLr0), DstReg)
+    MachineFunction *MF = BB->getParent();
+    MachineRegisterInfo &MRI = MF->getRegInfo();
+    const TargetRegisterClass *RC = MRI.getRegClass(DstReg);
+
+    MachineBasicBlock *StartBB = BB;
+    MachineBasicBlock *ShiftBB = MF->CreateMachineBasicBlock();
+    MachineBasicBlock *DoneBB = MF->CreateMachineBasicBlock();
+
+    MachineFunction::iterator It = ++BB->getIterator();
+    MF->insert(It, ShiftBB);
+    MF->insert(It, DoneBB);
+
+    // Transfer everything after this instruction to DoneBB
+    DoneBB->splice(DoneBB->begin(), StartBB,
+                   std::next(MachineBasicBlock::iterator(MI)), StartBB->end());
+    DoneBB->transferSuccessorsAndUpdatePHIs(StartBB);
+
+    // StartBB: MOV $cnt, R0 + JEQ DoneBB
+    BuildMI(StartBB, DL, TII.get(TMS9900::MOVrr), TMS9900::R0)
+        .addReg(CntReg);
+    BuildMI(StartBB, DL, TII.get(TMS9900::JEQ)).addMBB(DoneBB);
+    StartBB->addSuccessor(ShiftBB);
+    StartBB->addSuccessor(DoneBB);
+
+    // ShiftBB: do the shift, fall through to DoneBB
+    Register ShiftedReg = MRI.createVirtualRegister(RC);
+    BuildMI(ShiftBB, DL, TII.get(ShiftOpc), ShiftedReg)
         .addReg(SrcReg);
+    ShiftBB->addSuccessor(DoneBB);
+
+    // DoneBB: PHI to pick shifted or original value
+    BuildMI(*DoneBB, DoneBB->begin(), DL, TII.get(TargetOpcode::PHI), DstReg)
+        .addReg(ShiftedReg)
+        .addMBB(ShiftBB)
+        .addReg(SrcReg)
+        .addMBB(StartBB);
+    MF->getProperties().reset(MachineFunctionProperties::Property::NoPHIs);
 
     MI.eraseFromParent();
-    return BB;
+    return DoneBB;
   }
   }
 
