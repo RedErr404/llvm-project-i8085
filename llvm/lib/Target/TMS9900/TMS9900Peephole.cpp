@@ -114,6 +114,12 @@ static bool tryFoldPostInc(MachineInstr &IncMI,
     return false;
   }
 
+  // For loads (MOV *Rs+, Rd): if AddrReg == ValueReg, the loaded value
+  // overwrites the auto-incremented address, losing the increment.
+  // e.g. MOV *R0+, R0 loads from *R0 into R0, clobbering the R0+2 result.
+  if (IsLoad && AddrReg == ValueReg)
+    return false;
+
   MachineBasicBlock &MBB = *IncMI.getParent();
   DebugLoc DL = Prev->getDebugLoc();
   bool DeadAddr = IncMI.getOperand(0).isDead();

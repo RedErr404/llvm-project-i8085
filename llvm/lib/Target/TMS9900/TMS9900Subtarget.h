@@ -31,10 +31,10 @@ class StringRef;
 class TMS9900Subtarget : public TMS9900GenSubtargetInfo {
   virtual void anchor();
 
+  TMS9900RegisterInfo RegInfo;
   TMS9900InstrInfo InstrInfo;
   TMS9900FrameLowering FrameLowering;
   TMS9900TargetLowering TLInfo;
-  TMS9900RegisterInfo RegInfo;
   SelectionDAGTargetInfo TSInfo;
 
   // Subtarget feature bits (populated by ParseSubtargetFeatures).

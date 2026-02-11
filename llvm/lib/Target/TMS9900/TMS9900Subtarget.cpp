@@ -27,9 +27,9 @@ void TMS9900Subtarget::anchor() {}
 TMS9900Subtarget::TMS9900Subtarget(const Triple &TT, StringRef CPU,
                                      StringRef FS, const TargetMachine &TM)
     : TMS9900GenSubtargetInfo(TT, CPU, /*TuneCPU*/ CPU, FS),
+      RegInfo(*this),
       InstrInfo(*this),
       FrameLowering(*this),
-      TLInfo(TM, *this),
-      RegInfo(*this) {
+      TLInfo(TM, *this) {
   ParseSubtargetFeatures(CPU, CPU, FS);
 }
