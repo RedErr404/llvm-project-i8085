@@ -42,8 +42,14 @@ using namespace llvm;
 
 TMS9900FrameLowering::TMS9900FrameLowering(const TMS9900Subtarget &STI)
     : TargetFrameLowering(StackGrowsDown,
-                          /*StackAlignment=*/Align(2),
+                          /*StackAlignment=*/Align(4),
                           /*LocalAreaOffset=*/0) {}
+// NOTE: Stack alignment is 4 bytes (not 2) to match LLVM's type legalizer
+// assumptions. When splitting i32 loads/stores, LLVM uses OR-instead-of-ADD
+// to compute the low-word address (e.g., ORI Rx,2 instead of AI Rx,2).
+// This optimization assumes bit 1 of the base address is zero, which requires
+// 4-byte stack alignment. With 2-byte alignment, non-4-byte-aligned stack
+// addresses cause ORI to be a no-op, reading the high word twice.
 
 bool TMS9900FrameLowering::hasFP(const MachineFunction &MF) const {
   // We don't use a separate frame pointer - just the stack pointer (R10)
@@ -73,7 +79,7 @@ void TMS9900FrameLowering::emitPrologue(MachineFunction &MF,
   if (MBBI != MBB.end())
     DL = MBBI->getDebugLoc();
 
-  // Get the stack size
+  // Get the stack size (already aligned by processFunctionBeforeFrameFinalized)
   uint64_t StackSize = MFI.getStackSize();
 
   // If we have a stack frame, we need to:
@@ -111,16 +117,26 @@ void TMS9900FrameLowering::emitPrologue(MachineFunction &MF,
         .addCFIIndex(CFIIndex);
   }
 
-  // Allocate stack space
-  if (StackSize > 0) {
-    // AI R10,-StackSize
+  // Allocate stack space.
+  // For non-leaf functions, the DECT above subtracted 2 from SP, breaking
+  // 4-byte alignment (SP is now 4k+2). To restore 4-byte alignment, we
+  // add 2 extra bytes of padding to the AI allocation. This makes the total
+  // prologue displacement = 2 (DECT) + StackSize + 2 (pad) = StackSize + 4,
+  // which is 4-byte aligned (since StackSize is always 4-aligned).
+  // The extra 2 bytes are accounted for in eliminateFrameIndex.
+  uint64_t AllocSize = StackSize;
+  if (MFI.hasCalls() && StackSize > 0)
+    AllocSize += 2;  // alignment padding after DECT
+
+  if (AllocSize > 0) {
+    // AI R10,-AllocSize
     BuildMI(MBB, MBBI, DL, TII.get(TMS9900::AI), TMS9900::R10)
         .addReg(TMS9900::R10)
-        .addImm(-static_cast<int64_t>(StackSize));
+        .addImm(-static_cast<int64_t>(AllocSize));
 
-    // CFI: CFA offset grows by StackSize
+    // CFI: CFA offset grows by AllocSize
     unsigned CFIIndex = MF.addFrameInst(
-        MCCFIInstruction::cfiDefCfaOffset(nullptr, StackSize + (MFI.hasCalls() ? 2 : 0)));
+        MCCFIInstruction::cfiDefCfaOffset(nullptr, AllocSize + (MFI.hasCalls() ? 2 : 0)));
     BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
         .addCFIIndex(CFIIndex);
   }
@@ -154,12 +170,16 @@ void TMS9900FrameLowering::emitEpilogue(MachineFunction &MF,
     return;
   }
 
-  // Deallocate stack space
-  if (StackSize > 0) {
-    // AI R10,StackSize
+  // Deallocate stack space (must match the allocation in emitPrologue)
+  uint64_t DeallocSize = StackSize;
+  if (MFI.hasCalls() && StackSize > 0)
+    DeallocSize += 2;  // alignment padding (matches prologue)
+
+  if (DeallocSize > 0) {
+    // AI R10,DeallocSize
     BuildMI(MBB, MBBI, DL, TII.get(TMS9900::AI), TMS9900::R10)
         .addReg(TMS9900::R10)
-        .addImm(StackSize);
+        .addImm(DeallocSize);
   }
 
   // Restore return address for non-leaf functions
@@ -232,4 +252,10 @@ void TMS9900FrameLowering::determineCalleeSaves(MachineFunction &MF,
 
   // R13, R14, R15 are callee-saved
   // They will be saved if used
+}
+
+void TMS9900FrameLowering::processFunctionBeforeFrameFinalized(
+    MachineFunction &MF, RegScavenger *RS) const {
+  // Nothing to do here -- alignment padding is handled in emitPrologue/
+  // emitEpilogue and accounted for in eliminateFrameIndex.
 }

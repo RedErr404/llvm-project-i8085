@@ -304,18 +304,18 @@ public:
           else
             continue;
 
+          // CLR and SETO do NOT set status flags (TMS9900 Data Manual p.24),
+          // but LI DOES set status flags (Data Manual p.26).  Only convert
+          // when the LI's ST def is dead (flags not needed).
+          if (!MI.registerDefIsDead(TMS9900::ST, TRI))
+            continue;
+
           Register Reg = MI.getOperand(0).getReg();
           bool DeadDef = MI.getOperand(0).isDead();
           DebugLoc DL = MI.getDebugLoc();
           MachineInstrBuilder MIB =
               BuildMI(MBB, MI, DL, TII->get(NewOpc));
           MIB.addReg(Reg, RegState::Define | (DeadDef ? RegState::Dead : 0));
-
-          if (int STIdx = MIB->findRegisterDefOperandIdx(TMS9900::ST, true);
-              STIdx != -1 &&
-              MI.registerDefIsDead(TMS9900::ST, TRI)) {
-            MIB->getOperand(STIdx).setIsDead();
-          }
 
           MI.eraseFromParent();
           Changed = true;
@@ -329,17 +329,16 @@ public:
           if (Dst != Src1 || Src1 != Src2)
             continue;
 
+          // XOR sets status flags but CLR does NOT (TMS9900 Data Manual p.24).
+          // Only convert when the XOR's ST def is dead (flags not needed).
+          if (!MI.registerDefIsDead(TMS9900::ST, TRI))
+            continue;
+
           bool DeadDef = MI.getOperand(0).isDead();
           DebugLoc DL = MI.getDebugLoc();
           MachineInstrBuilder MIB =
               BuildMI(MBB, MI, DL, TII->get(TMS9900::CLRr));
           MIB.addReg(Dst, RegState::Define | (DeadDef ? RegState::Dead : 0));
-
-          if (int STIdx = MIB->findRegisterDefOperandIdx(TMS9900::ST, true);
-              STIdx != -1 &&
-              MI.registerDefIsDead(TMS9900::ST, TRI)) {
-            MIB->getOperand(STIdx).setIsDead();
-          }
 
           MI.eraseFromParent();
           Changed = true;
@@ -407,8 +406,9 @@ public:
         // Tier 1 -- full elimination: delete CI Rx,0 when the immediately
         // preceding instruction already set flags for Rx.
         // TMS9900 ALU instructions (MOV, A, S, SOC, SZC, XOR, INC, DEC,
-        // SLA, SRA, SRL, ANDI, ORI, INV, NEG, ABS, CLR) all set status
+        // SLA, SRA, SRL, ANDI, ORI, INV, NEG, ABS) all set status
         // bits EQ, LGT, AGT based on the result value -- the same way CI
+        // NOTE: CLR and SETO do NOT set status flags (TMS9900 Data Manual).
         // Rx,0 does. So if the immediately preceding instruction already
         // computed the value into TestReg AND set ST, the CI is redundant.
         //

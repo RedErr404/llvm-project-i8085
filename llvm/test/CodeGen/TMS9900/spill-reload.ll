@@ -36,7 +36,7 @@ declare i16 @use(i16)
 ; CHECK: MOV{{[ \t]+}}@{{[0-9]+}}(R10),R13
 ;
 ; Stack frame deallocated and R11 restored:
-; CHECK: AI{{[ \t]+}}R10,12
+; CHECK: AI{{[ \t]+}}R10,14
 ; CHECK-NEXT: MOV{{[ \t]+}}*R10+,R11
 ; CHECK-NEXT: B{{[ \t]+}}*R11
 

@@ -25,6 +25,7 @@ entry:
 
 ; --- Non-leaf function: R11 saved/restored ---
 ; A function that calls another function must save R11 (link register).
+; When StackSize=0, no AI is needed (just DECT+MOV for R11).
 ; CHECK-LABEL: non_leaf:
 ; CHECK: DECT{{[ \t]+}}R10
 ; CHECK: MOV{{[ \t]+}}R11,*R10
@@ -40,10 +41,11 @@ entry:
 
 ; --- 5th argument goes on stack ---
 ; The 5th argument should be pushed onto the stack before the BL.
+; StackSize=4 (outgoing arg) + 2 (alignment padding after DECT) = AI -6.
 ; CHECK-LABEL: pass_5_args:
 ; CHECK: DECT{{[ \t]+}}R10
 ; CHECK: MOV{{[ \t]+}}R11,*R10
-; CHECK: DECT{{[ \t]+}}R10
+; CHECK: AI{{[ \t]+}}R10,-6
 ; CHECK-DAG: LI{{[ \t]+}}R0,1
 ; CHECK-DAG: LI{{[ \t]+}}R1,2
 ; CHECK-DAG: LI{{[ \t]+}}R2,3

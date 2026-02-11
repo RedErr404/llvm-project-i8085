@@ -60,6 +60,16 @@ def CC_TMS9900 : CallingConv<[
   CCIfType<[i16], CCAssignToStack<2, 2>>
 ]>;
 
+// Stack-only calling convention for variadic functions.
+// All arguments go on the stack so va_arg can walk them sequentially.
+def CC_TMS9900_VarArg : CallingConv<[
+  // Promote i8 to i16
+  CCIfType<[i8], CCPromoteToType<i16>>,
+
+  // All arguments go on stack, 2-byte aligned
+  CCIfType<[i16], CCAssignToStack<2, 2>>
+]>;
+
 //===----------------------------------------------------------------------===//
 // Callee-saved Registers
 //===----------------------------------------------------------------------===//

@@ -248,8 +248,8 @@ define i1 @slt64(i64 %a, i64 %b) {
 ; --- Zero extend i32 to i64 ---
 ; Upper 32 bits (R0:R1) should be cleared, lower 32 bits (R2:R3) get the value.
 ; CHECK-LABEL: zext32to64:
-; CHECK: CLR{{[ \t]+}}R0
-; CHECK: CLR{{[ \t]+}}R1
+; CHECK-DAG: CLR{{[ \t]+}}R0
+; CHECK-DAG: CLR{{[ \t]+}}R1
 ; CHECK: B{{[ \t]+}}*R11
 define i64 @zext32to64(i32 %x) {
   %r = zext i32 %x to i64

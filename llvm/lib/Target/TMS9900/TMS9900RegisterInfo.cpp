@@ -97,10 +97,26 @@ bool TMS9900RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
   // Add the offset from the stack pointer (R10)
   // Stack objects are at negative offsets from the original SP,
   // but we need to compute from the current SP (after prologue allocation)
+  //
+  // Stack layout for non-leaf functions with locals:
+  //   SP_entry            (4-byte aligned)
+  //     [R11, 2 bytes]    -- DECT R10
+  //   SP_entry - 2
+  //     [locals, StackSize bytes]
+  //     [2 bytes padding] -- for 4-byte alignment after DECT
+  //   SP = SP_entry - StackSize - 4
+  //
+  // LLVM's ObjectOffset is relative to (SP_entry - 2), the frame pointer.
+  // For non-fixed objects: address = (SP + StackSize + 2) + ObjectOffset
+  // For fixed objects:     address = (SP + StackSize + 4) + ObjectOffset
   int64_t StackAdj = MFI.getStackSize();
   const Function &F = MF.getFunction();
-  if (MFI.isFixedObjectIndex(FrameIndex) && MFI.hasCalls() &&
-      !F.hasFnAttribute(Attribute::Naked) && !F.hasFnAttribute("interrupt")) {
+  bool IsNonLeaf = MFI.hasCalls() &&
+      !F.hasFnAttribute(Attribute::Naked) && !F.hasFnAttribute("interrupt");
+  if (IsNonLeaf && StackAdj > 0) {
+    StackAdj += 2; // alignment padding (prologue allocates StackSize+2)
+  }
+  if (MFI.isFixedObjectIndex(FrameIndex) && IsNonLeaf) {
     StackAdj += 2; // Account for the saved return address (R11).
   }
   Offset += StackAdj;

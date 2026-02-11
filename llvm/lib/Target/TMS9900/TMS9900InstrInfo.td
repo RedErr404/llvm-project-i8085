@@ -298,6 +298,10 @@ let isCodeGenOnly = 1, isPseudo = 1 in {
 // This computes rd = rs1 AND rs2
 // Expanded to: INV rs2; SZC rs2, rd; INV rs2 (restores rs2)
 // Note: rd must equal rs1 (two-address constraint)
+// Defs = [ST] is required because the expansion (INV, SZC, INV) all set
+// status flags. Without it, the scheduler may move ANDrr across
+// flag-dependent sequences, corrupting comparison results.
+let Defs = [ST] in
 def ANDrr : Pseudo<(outs GR16:$rd), (ins GR16:$rs1, GR16:$rs2),
                    "# AND $rs1, $rs2",
                    [(set GR16:$rd, (and GR16:$rs1, GR16:$rs2))]> {
@@ -668,10 +672,11 @@ def LI : Format8<0b0000, (outs GR16:$rd), (ins i16imm:$imm),
   let SchedRW = [WriteImm12];
 }
 
-// CLR, SETO set status bits; SWPB does NOT affect status (TMS9900 Data Manual)
-let Defs = [ST] in {
+// CLR and SETO do NOT affect the status register (TMS9900 Data Manual p.24:
+// Status Bits Affected = "--" for both CLR and SETO).
+// SWPB also does NOT affect status.
 let SchedRW = [WriteFast] in {
-// CLR - Clear (set to 0) - sets EQ=1
+// CLR - Clear (set to 0) - does NOT set status flags
 // Always safe to rematerialize (produces constant 0).
 let isReMaterializable = 1, isAsCheapAsAMove = 1 in
 def CLRr : Format3_Reg<0b0000010011, (outs GR16:$rs), (ins),
@@ -703,7 +708,7 @@ def CLR_pim : Format3_AutoInc<0b0000010011, (outs), (ins GR16:$rs),
   let mayStore = 1;
 }
 
-// SETO - Set to ones (FFFF) - sets LGT=1, AGT=0, EQ=0
+// SETO - Set to ones (FFFF) - does NOT set status flags
 // Always safe to rematerialize (produces constant 0xFFFF).
 let isReMaterializable = 1, isAsCheapAsAMove = 1 in
 def SETOr : Format3_Reg<0b0000011100, (outs GR16:$rs), (ins),
@@ -736,7 +741,6 @@ def SETO_pim : Format3_AutoInc<0b0000011100, (outs), (ins GR16:$rs),
 }
 
 } // SchedRW = [WriteFast]
-} // Defs = [ST]
 
 // SWPB - Swap bytes - does NOT affect status register (TMS9900 Data Manual)
 let SchedRW = [WriteFast] in {
@@ -1401,7 +1405,7 @@ def SRLr0 : Format7_R0Count<0b00001001, (outs GR16:$rd), (ins GR16:$rs),
 // These are pseudo instructions that expand to: MOV count, R0 + shift reg, 0
 // The shift instructions use count=0 to mean "use R0 as shift count"
 
-let usesCustomInserter = 1, Defs = [ST] in {
+let usesCustomInserter = 1, Defs = [R0, ST] in {
 def SLA_VAR : Pseudo<(outs GR16:$rd), (ins GR16:$rs, GR16:$cnt),
                      "# SLA_VAR $rs, $cnt",
                      [(set GR16:$rd, (shl GR16:$rs, GR16:$cnt))]> {

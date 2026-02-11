@@ -62,8 +62,10 @@ public:
     // i16:16:16 = 16-bit ints with 16-bit alignment
     // i32:16:32 = 32-bit ints with 16-bit ABI/32-bit preferred alignment
     // n16 = native integer width is 16 bits
-    // S16 = 16-bit stack alignment
-    resetDataLayout("E-p:16:16-i8:8:8-i16:16:16-i32:16:32-n16-S16");
+    // S32 = 32-bit stack alignment (required: LLVM's type legalizer uses
+    //   OR-instead-of-ADD for i32 split address computation, which needs
+    //   4-byte-aligned base addresses)
+    resetDataLayout("E-p:16:16-i8:8:8-i16:16:16-i32:16:32-n16-S32");
   }
 
   void getTargetDefines(const LangOptions &Opts,

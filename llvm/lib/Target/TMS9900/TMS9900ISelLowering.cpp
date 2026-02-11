@@ -1613,12 +1613,15 @@ skip_normal_jump:
     // and R0 is also 0, the shift count becomes 16 (not 0).
     // We must guard against this by skipping the shift when count=0.
     //
+    // Key: use CMPBRri (a terminator pseudo) for the zero check.
+    // PHI elimination inserts copies BEFORE terminators, so the
+    // CMPBRri→(CI+JEQ) expansion in expandPostRAPseudo stays atomic.
+    // The MOV $cnt, R0 is placed in ShiftBB where it can't be disrupted.
+    //
     // Expansion:
-    //   MOV  $cnt, R0       ; sets flags
-    //   JEQ  DoneBB         ; if count=0, skip shift
-    //   SLA/SRA/SRL $rs, 0  ; shift by R0
-    // DoneBB:
-    //   PHI($dst, shifted from ShiftBB, original from StartBB)
+    //   StartBB: CMPBRri $cnt, 0, SETEQ, DoneBB   (skip if count=0)
+    //   ShiftBB: MOV $cnt, R0; SLA/SRA/SRL $rs, 0  (shift by R0)
+    //   DoneBB:  PHI($dst, shifted from ShiftBB, original from StartBB)
 
     Register DstReg = MI.getOperand(0).getReg();
     Register SrcReg = MI.getOperand(1).getReg();
@@ -1649,15 +1652,20 @@ skip_normal_jump:
                    std::next(MachineBasicBlock::iterator(MI)), StartBB->end());
     DoneBB->transferSuccessorsAndUpdatePHIs(StartBB);
 
-    // StartBB: MOV $cnt, R0 + JEQ DoneBB
-    BuildMI(StartBB, DL, TII.get(TMS9900::MOVrr), TMS9900::R0)
-        .addReg(CntReg);
-    BuildMI(StartBB, DL, TII.get(TMS9900::JEQ)).addMBB(DoneBB);
+    // StartBB: CMPBRri $cnt, 0, SETEQ, DoneBB (skip shift if count=0)
+    // CMPBRri is a terminator — PHI copies go before it, not between CI and JEQ.
+    BuildMI(StartBB, DL, TII.get(TMS9900::CMPBRri))
+        .addReg(CntReg)
+        .addImm(0)
+        .addImm(ISD::SETEQ)
+        .addMBB(DoneBB);
     StartBB->addSuccessor(ShiftBB);
     StartBB->addSuccessor(DoneBB);
 
-    // ShiftBB: do the shift, fall through to DoneBB
+    // ShiftBB: MOV $cnt, R0 then shift, fall through to DoneBB
     Register ShiftedReg = MRI.createVirtualRegister(RC);
+    BuildMI(ShiftBB, DL, TII.get(TMS9900::MOVrr), TMS9900::R0)
+        .addReg(CntReg);
     BuildMI(ShiftBB, DL, TII.get(ShiftOpc), ShiftedReg)
         .addReg(SrcReg);
     ShiftBB->addSuccessor(DoneBB);
@@ -1693,15 +1701,20 @@ SDValue TMS9900TargetLowering::LowerFormalArguments(
   TMS9900MachineFunctionInfo *FuncInfo = MF.getInfo<TMS9900MachineFunctionInfo>();
 
   // Analyze arguments
+  // For vararg functions, use stack-only calling convention so that
+  // va_arg can walk arguments sequentially on the stack.
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, MF, ArgLocs, *DAG.getContext());
-  CCInfo.AnalyzeFormalArguments(Ins, CC_TMS9900);
+  if (isVarArg)
+    CCInfo.AnalyzeFormalArguments(Ins, CC_TMS9900_VarArg);
+  else
+    CCInfo.AnalyzeFormalArguments(Ins, CC_TMS9900);
 
   // For vararg functions, create a frame index for the start of varargs area
   // This is the first stack location after all named arguments
   if (isVarArg) {
-    // The offset is at the end of where all arguments would go on the stack
-    // CCInfo.getStackSize() gives us the stack usage for all arguments
+    // The offset is at the end of where all named arguments go on the stack
+    // CCInfo.getStackSize() gives us the stack usage for all named arguments
     unsigned Offset = CCInfo.getStackSize();
     int VarArgsFrameIndex = MFI.CreateFixedObject(2, Offset, true);
     FuncInfo->setVarArgsFrameIndex(VarArgsFrameIndex);
@@ -1885,9 +1898,14 @@ SDValue TMS9900TargetLowering::LowerCall(
   MachineFunction &MF = DAG.getMachineFunction();
 
   // Analyze operands of the call, assigning locations to each operand.
+  // For vararg calls, use stack-only calling convention so callee can
+  // walk arguments sequentially via va_arg.
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, MF, ArgLocs, *DAG.getContext());
-  CCInfo.AnalyzeCallOperands(Outs, CC_TMS9900);
+  if (isVarArg)
+    CCInfo.AnalyzeCallOperands(Outs, CC_TMS9900_VarArg);
+  else
+    CCInfo.AnalyzeCallOperands(Outs, CC_TMS9900);
 
   // Check if tail call optimization is possible.
   if (IsTailCall)
@@ -1906,6 +1924,37 @@ SDValue TMS9900TargetLowering::LowerCall(
   // stack frame.
   if (!IsTailCall)
     Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, DL);
+
+  // Handle byval arguments: for each byval parameter, create a local stack
+  // copy and replace the original pointer with the copy's address.
+  // This must be done before the argument-passing loop because the CC has
+  // already assigned the byval pointer to a register or stack slot, and we
+  // need the pointer to point to the copy, not the original.
+  for (unsigned i = 0, e = Outs.size(); i != e; ++i) {
+    ISD::ArgFlagsTy Flags = Outs[i].Flags;
+    if (!Flags.isByVal())
+      continue;
+
+    SDValue Src = OutVals[i]; // pointer to original struct
+    unsigned Size = Flags.getByValSize();
+    Align Alignment = Flags.getNonZeroByValAlign();
+
+    // Create a stack object for the byval copy.
+    int FI = MF.getFrameInfo().CreateStackObject(Size, Alignment, false);
+    SDValue Dst = DAG.getFrameIndex(FI, MVT::i16);
+
+    // Emit memcpy from original to stack copy.
+    SDValue SizeNode = DAG.getConstant(Size, DL, MVT::i16);
+    Chain = DAG.getMemcpy(Chain, DL, Dst, Src, SizeNode, Alignment,
+                          /*isVolatile=*/false,
+                          /*AlwaysInline=*/true,
+                          /*isTailCall=*/false,
+                          MachinePointerInfo::getFixedStack(MF, FI),
+                          MachinePointerInfo());
+
+    // Replace the argument with the pointer to the copy.
+    OutVals[i] = Dst;
+  }
 
   // Build a sequence of copy-to-reg nodes chained together
   SDValue InGlue;
