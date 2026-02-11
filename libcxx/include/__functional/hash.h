@@ -83,6 +83,20 @@ struct __murmur2_or_cityhash<_Size, 32> {
 };
 
 template <class _Size>
+struct __murmur2_or_cityhash<_Size, 16> {
+  // FNV-1a for 16-bit size_t (freestanding embedded targets)
+  _LIBCPP_HIDE_FROM_ABI _Size operator()(const void* __key, _Size __len) const {
+    const unsigned char* __data = static_cast<const unsigned char*>(__key);
+    _Size __h                   = 0x811du ^ __len; // FNV offset basis (truncated) XOR length
+    for (_Size __i = 0; __i < __len; ++__i) {
+      __h ^= static_cast<_Size>(__data[__i]);
+      __h *= static_cast<_Size>(0x0193u); // FNV prime (truncated)
+    }
+    return __h;
+  }
+};
+
+template <class _Size>
 struct __murmur2_or_cityhash<_Size, 64> {
   // cityhash64
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_DISABLE_UBSAN_UNSIGNED_INTEGER_CHECK _Size

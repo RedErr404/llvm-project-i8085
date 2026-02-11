@@ -891,6 +891,7 @@ inline _LIBCPP_HIDE_FROM_ABI _Number __log2i(_Number __n) {
 template <class _Comp, class _RandomAccessIterator>
 void __sort(_RandomAccessIterator, _RandomAccessIterator, _Comp);
 
+#ifndef _LIBCPP_DISABLE_EXTERN_TEMPLATE
 extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<char>&, char*>(char*, char*, __less<char>&);
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<wchar_t>&, wchar_t*>(wchar_t*, wchar_t*, __less<wchar_t>&);
@@ -916,6 +917,7 @@ extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<float>&, float*>(fl
 extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<double>&, double*>(double*, double*, __less<double>&);
 extern template _LIBCPP_EXPORTED_FROM_ABI void
 __sort<__less<long double>&, long double*>(long double*, long double*, __less<long double>&);
+#endif // !_LIBCPP_DISABLE_EXTERN_TEMPLATE
 
 template <class _AlgPolicy, class _RandomAccessIterator, class _Comp>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
@@ -936,7 +938,11 @@ template <class _Type, class... _Options>
 using __is_any_of = _Or<is_same<_Type, _Options>...>;
 
 template <class _Type>
-using __sort_is_specialized_in_library = __is_any_of<
+using __sort_is_specialized_in_library =
+#ifdef _LIBCPP_DISABLE_EXTERN_TEMPLATE
+    false_type;
+#else
+    __is_any_of<
     _Type,
     char,
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
@@ -955,7 +961,9 @@ using __sort_is_specialized_in_library = __is_any_of<
     float,
     double,
     long double>;
+#endif
 
+#ifndef _LIBCPP_DISABLE_EXTERN_TEMPLATE
 template <class _AlgPolicy, class _Type, __enable_if_t<__sort_is_specialized_in_library<_Type>::value, int> = 0>
 _LIBCPP_HIDE_FROM_ABI void __sort_dispatch(_Type* __first, _Type* __last, __less<>&) {
   __less<_Type> __comp;
@@ -983,6 +991,7 @@ _LIBCPP_HIDE_FROM_ABI void __sort_dispatch(_Type* __first, _Type* __last, ranges
   std::__sort<__less<_Type>&, _Type*>(__first, __last, __comp);
 }
 #endif
+#endif // !_LIBCPP_DISABLE_EXTERN_TEMPLATE
 
 template <class _AlgPolicy, class _RandomAccessIterator, class _Comp>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
