@@ -142,9 +142,10 @@ TMS9900TargetLowering::TMS9900TargetLowering(const TargetMachine &TM,
   // We have SWPB for byte swap
   setOperationAction(ISD::BSWAP, MVT::i16, Legal);
 
-  // Rotate right is supported (SRC), but not rotate left directly
-  setOperationAction(ISD::ROTR, MVT::i16, Legal);
-  setOperationAction(ISD::ROTL, MVT::i16, Expand);  // Expand to ROTR
+  // Rotate - expand to shifts + or. SRC instruction only supports constant
+  // count; variable-count rotate needs expansion.
+  setOperationAction(ISD::ROTR, MVT::i16, Expand);
+  setOperationAction(ISD::ROTL, MVT::i16, Expand);
 
   // Shifts are supported
   setOperationAction(ISD::SHL, MVT::i16, Legal);
@@ -1759,6 +1760,17 @@ SDValue TMS9900TargetLowering::LowerFormalArguments(
 //===----------------------------------------------------------------------===//
 //                  Return Value Calling Convention Implementation
 //===----------------------------------------------------------------------===//
+
+bool TMS9900TargetLowering::CanLowerReturn(
+    CallingConv::ID CallConv, MachineFunction &MF, bool isVarArg,
+    const SmallVectorImpl<ISD::OutputArg> &Outs, LLVMContext &Context) const {
+  // TMS9900 can return up to 8 bytes (4 x i16 registers: R0-R3).
+  // Anything larger (e.g. i128) must use sret (struct return).
+  unsigned TotalBytes = 0;
+  for (const auto &Out : Outs)
+    TotalBytes += Out.VT.getSizeInBits() / 8;
+  return TotalBytes <= 8;
+}
 
 SDValue TMS9900TargetLowering::LowerReturn(
     SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
