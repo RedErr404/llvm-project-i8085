@@ -26,6 +26,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/KnownBits.h"
 
 using namespace llvm;
 
@@ -260,6 +261,27 @@ TMS9900TargetLowering::TMS9900TargetLowering(const TargetMachine &TM,
   // Set minimum function alignment
   setMinFunctionAlignment(Align(2));
   setPrefFunctionAlignment(Align(2));
+}
+
+void TMS9900TargetLowering::computeKnownBitsForFrameIndex(
+    int FIOp, KnownBits &Known, const MachineFunction &MF) const {
+  // Do NOT report any known bits for frame indices.
+  //
+  // The default implementation reports low bits as known-zero based on
+  // the object's requested alignment (e.g., Align(4) for i32 means bits
+  // 0-1 are known zero). The DAG combiner uses this to convert
+  // ADD(frameptr, 2) -> OR(frameptr, 2) when it thinks bit 1 is zero.
+  //
+  // On TMS9900, the actual address of a frame object depends on the
+  // stack layout after prologue emission (DECT for R11 push + alignment
+  // padding). The requested alignment may not reflect the actual runtime
+  // alignment of the object's address. Reporting false known-zero bits
+  // causes OR to be used instead of ADD, which is a no-op when the bit
+  // is actually set, silently reading the wrong memory location.
+  //
+  // Being conservative here costs negligible optimization opportunity
+  // but prevents a class of silent miscompilation bugs.
+  Known.resetAll();
 }
 
 const char *TMS9900TargetLowering::getTargetNodeName(unsigned Opcode) const {

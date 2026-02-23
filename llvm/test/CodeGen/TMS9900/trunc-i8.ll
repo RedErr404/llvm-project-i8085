@@ -12,7 +12,7 @@ entry:
 
 ; CHECK-LABEL: low:
 ; CHECK: MOV R10,[[REG:R[0-9]+]]
-; CHECK: ORI [[REG]],1
-; CHECK: MOVB *[[REG]],[[REG]]
+; CHECK: MOV R0,*[[REG]]
+; CHECK: MOVB @1([[REG]]),R0
 
 attributes #0 = { noinline nounwind optnone }

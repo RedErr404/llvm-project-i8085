@@ -133,6 +133,13 @@ public:
 
   bool mayBeEmittedAsTailCall(const CallInst *CI) const override;
 
+  /// computeKnownBitsForFrameIndex - Override to report no known bits for
+  /// frame indices. TMS9900's prologue uses DECT+padding that can break
+  /// alignment assumptions, so we cannot trust object alignment to predict
+  /// the low bits of stack addresses.
+  void computeKnownBitsForFrameIndex(int FIOp, KnownBits &Known,
+                                     const MachineFunction &MF) const override;
+
   /// getConstraintType - Given a constraint letter, return the type of
   /// constraint it is for this target.
   ConstraintType getConstraintType(StringRef Constraint) const override;
