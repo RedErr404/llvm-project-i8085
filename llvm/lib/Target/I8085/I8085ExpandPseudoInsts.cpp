@@ -852,6 +852,15 @@ bool I8085ExpandPseudo::expand<I8085::LOAD_8_WITH_IMM_ADDR>(Block &MBB, BlockIt 
 
   const MachineOperand &AddrMO = MI.getOperand(1);
 
+  // LDA loads a byte from a fixed address straight into A in one 3-byte
+  // instruction without touching HL, so use it when A is the destination.
+  if (destReg == I8085::A) {
+    MachineInstrBuilder Ld = buildMI(MBB, MBBI, I8085::LDA);
+    addAddrOperand(Ld, AddrMO);
+    MI.eraseFromParent();
+    return true;
+  }
+
   MachineInstrBuilder Addr = buildMI(MBB, MBBI, I8085::LXI)
                                  .addReg(I8085::HL, RegState::Define);
   addAddrOperand(Addr, AddrMO);
@@ -906,6 +915,15 @@ bool I8085ExpandPseudo::expand<I8085::STORE_8_WITH_IMM_ADDR>(Block &MBB, BlockIt
 
   unsigned srcReg = MI.getOperand(1).getReg();
   const MachineOperand &AddrMO = MI.getOperand(0);
+
+  // STA stores A to a fixed address in one 3-byte instruction without touching
+  // HL, so use it when the value is already in A.
+  if (srcReg == I8085::A) {
+    MachineInstrBuilder St = buildMI(MBB, MBBI, I8085::STA);
+    addAddrOperand(St, AddrMO);
+    MI.eraseFromParent();
+    return true;
+  }
 
   MachineInstrBuilder Addr = buildMI(MBB, MBBI, I8085::LXI)
                                  .addReg(I8085::HL, RegState::Define);

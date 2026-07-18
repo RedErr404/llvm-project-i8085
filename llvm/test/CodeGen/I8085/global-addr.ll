@@ -13,10 +13,10 @@ define void @store_globals(i8 %a, i16 %b) {
 ; CHECK-NEXT:    LXI H, 2
 ; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    MOV A, M
-; CHECK-NEXT:    LXI H, g8
-; CHECK-NEXT:    MOV M, A
-; CHECK-NEXT:    LXI H, 3
-; CHECK-NEXT:    DAD SP
+; CHECK-NEXT:    STA g8
+; STA preserves HL (unlike the old LXI H,g8/MOV M,A), so HLTracking reuses the
+; SP+2 address (INX H) for the adjacent i16 argument instead of recomputing it.
+; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV C, M
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV B, M
@@ -34,8 +34,7 @@ define i16 @load_globals() {
 ; CHECK-LABEL: load_globals:
 ; CHECK:         .cfi_startproc
 ; CHECK-NEXT:  ; %bb.0: ; %entry
-; CHECK-NEXT:    LXI H, g8
-; CHECK-NEXT:    MOV A, M
+; CHECK-NEXT:    LDA g8
 ; CHECK-NEXT:    MOV C, A
 ; CHECK-NEXT:    MVI B, 0
 ; CHECK-NEXT:    LHLD g16

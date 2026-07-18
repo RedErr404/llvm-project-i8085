@@ -28,8 +28,7 @@ define void @set_flag(i8 %v) {
 ; CHECK-LABEL: set_flag:
 ; CHECK: DAD SP
 ; CHECK: MOV A, M
-; CHECK: LXI H, flag
-; CHECK: MOV M, A
+; CHECK: STA flag
 ; CHECK: RET
 entry:
   store i8 %v, i8* @flag
@@ -39,8 +38,7 @@ entry:
 ; Load from global i8
 define i8 @get_flag() {
 ; CHECK-LABEL: get_flag:
-; CHECK: LXI H, flag
-; CHECK: MOV A, M
+; CHECK: LDA flag
 ; CHECK: RET
 entry:
   %v = load i8, i8* @flag

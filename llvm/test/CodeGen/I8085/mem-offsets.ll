@@ -84,8 +84,7 @@ define i8 @stack_global_mix(i8 %x) {
 ; CHECK-NEXT:    LXI H, 255
 ; CHECK-NEXT:    DAD B
 ; CHECK-NEXT:    MOV M, A
-; CHECK-NEXT:    LXI H, glob
-; CHECK-NEXT:    MOV M, A
+; CHECK-NEXT:    STA glob
 ; CHECK-NEXT:    LXI H, 400
 ; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    SPHL
