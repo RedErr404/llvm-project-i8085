@@ -352,6 +352,22 @@ template <> bool I8085DAGToDAGISel::select<ISD::BR_CC>(SDNode *N) {
       case ISD::SETULE:
         if (Imm < 255) { FusedOpc = I8085::BR_CC_ULT_8_IMM; Imm++; }
         break;
+      // Signed: use the biased immediate (k ^ 0x80) so the expansion is a
+      // single XRI 0x80 + CPI. a > k == a >= k+1 and a <= k == a < k+1, valid
+      // unless k is already the max signed value 127 (then the compare is
+      // constant, so leave it to the diamond / constant folding).
+      case ISD::SETLT: FusedOpc = I8085::BR_CC_SLT_8_IMM; Imm ^= 0x80; break;
+      case ISD::SETGE: FusedOpc = I8085::BR_CC_SGE_8_IMM; Imm ^= 0x80; break;
+      case ISD::SETGT:
+        if ((int8_t)Imm != 127) {
+          FusedOpc = I8085::BR_CC_SGE_8_IMM; Imm = ((Imm + 1) & 0xFF) ^ 0x80;
+        }
+        break;
+      case ISD::SETLE:
+        if ((int8_t)Imm != 127) {
+          FusedOpc = I8085::BR_CC_SLT_8_IMM; Imm = ((Imm + 1) & 0xFF) ^ 0x80;
+        }
+        break;
       default: break;
       }
 

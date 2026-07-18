@@ -193,6 +193,14 @@ let isBranch = 1, isTerminator = 1, Defs=[SREG, A] in {
    def BR_CC_UGE_8_IMM : I8085Pseudo<(outs),
        (ins GR8:$lhs, I8085Imm8:$rhs, addressTarget:$k),
        "BR_CC_UGE_8_IMM $lhs, $rhs, $k", []>;
+   // Signed compare against a constant. $rhs is the pre-biased immediate
+   // (k ^ 0x80); expansion is MOV A,lhs ; XRI 0x80 ; CPI $rhs ; Jcc.
+   def BR_CC_SLT_8_IMM : I8085Pseudo<(outs),
+       (ins GR8:$lhs, I8085Imm8:$rhs, addressTarget:$k),
+       "BR_CC_SLT_8_IMM $lhs, $rhs, $k", []>;
+   def BR_CC_SGE_8_IMM : I8085Pseudo<(outs),
+       (ins GR8:$lhs, I8085Imm8:$rhs, addressTarget:$k),
+       "BR_CC_SGE_8_IMM $lhs, $rhs, $k", []>;
 }
 
 // Fused compare-register-and-branch pseudos for i8 (register RHS).

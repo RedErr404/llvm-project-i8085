@@ -2160,6 +2160,38 @@ template <> bool I8085ExpandPseudo::expand<I8085::BR_CC_UGE_8_IMM>(Block &MBB, B
   return expandBrCCImm(MBB, MBBI, I8085::JNC, TII);
 }
 
+// Signed compare-against-constant. The immediate operand is already biased
+// (k ^ 0x80); emit MOV A,LHS; XRI 0x80; CPI biasedImm; Jcc. After XRI the
+// accumulator holds LHS^0x80, so CPI sets CY = (LHS^0x80 < k^0x80) unsigned
+// = signed(LHS) < signed(k).
+static bool expandBrCCSignedImm(MachineBasicBlock &MBB,
+                                MachineBasicBlock::iterator MBBI,
+                                unsigned JmpOpc,
+                                const TargetInstrInfo *TII) {
+  MachineInstr &MI = *MBBI;
+  unsigned LHS = MI.getOperand(0).getReg();
+  int64_t Imm = MI.getOperand(1).getImm();
+  DebugLoc DL = MI.getDebugLoc();
+
+  BuildMI(MBB, MBBI, DL, TII->get(I8085::MOV))
+    .addReg(I8085::A, RegState::Define)
+    .addReg(LHS);
+  BuildMI(MBB, MBBI, DL, TII->get(I8085::XRI)).addImm(0x80);
+  BuildMI(MBB, MBBI, DL, TII->get(I8085::CPI)).addImm(Imm);
+  BuildMI(MBB, MBBI, DL, TII->get(JmpOpc)).add(MI.getOperand(2));
+
+  MI.eraseFromParent();
+  return true;
+}
+
+template <> bool I8085ExpandPseudo::expand<I8085::BR_CC_SLT_8_IMM>(Block &MBB, BlockIt MBBI) {
+  return expandBrCCSignedImm(MBB, MBBI, I8085::JC, TII);
+}
+
+template <> bool I8085ExpandPseudo::expand<I8085::BR_CC_SGE_8_IMM>(Block &MBB, BlockIt MBBI) {
+  return expandBrCCSignedImm(MBB, MBBI, I8085::JNC, TII);
+}
+
 // Fused compare-register-and-branch expansions.
 // Each emits: MOV A, LHS ; SUB RHS ; Jcc target. After MOV A,LHS the accumulator
 // holds LHS, and SUB RHS sets Z = (LHS == RHS) and CY = (LHS < RHS unsigned).
@@ -3271,6 +3303,8 @@ bool I8085ExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
     EXPAND(I8085::BR_CC_NE_8_IMM);
     EXPAND(I8085::BR_CC_ULT_8_IMM);
     EXPAND(I8085::BR_CC_UGE_8_IMM);
+    EXPAND(I8085::BR_CC_SLT_8_IMM);
+    EXPAND(I8085::BR_CC_SGE_8_IMM);
     EXPAND(I8085::BR_CC_EQ_8);
     EXPAND(I8085::BR_CC_NE_8);
     EXPAND(I8085::BR_CC_ULT_8);
