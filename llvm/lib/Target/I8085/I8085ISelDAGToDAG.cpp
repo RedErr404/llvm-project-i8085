@@ -366,6 +366,66 @@ template <> bool I8085DAGToDAGISel::select<ISD::BR_CC>(SDNode *N) {
     }
   }
 
+  // Fused compare-register-and-branch for i8 with a register RHS. Bypasses the
+  // SET_*_8 boolean diamond + JMP_8_IF re-test for `if (a <cc> b)`. Unsigned and
+  // equality use a plain SUB; signed use the sign-bias custom inserter. Only
+  // register operands are fused: a constant would need materializing anyway, and
+  // constant unsigned/equality cases are already handled by the *_IMM path
+  // above, so here a constant simply falls through to the diamond.
+  if (LHS.getSimpleValueType() == MVT::i8 &&
+      !isa<ConstantSDNode>(LHS) && !isa<ConstantSDNode>(RHS)) {
+    unsigned FusedOpc = 0;
+    switch (CC) {
+    case ISD::SETEQ:  FusedOpc = I8085::BR_CC_EQ_8; break;
+    case ISD::SETNE:  FusedOpc = I8085::BR_CC_NE_8; break;
+    case ISD::SETULT: FusedOpc = I8085::BR_CC_ULT_8; break;
+    case ISD::SETUGE: FusedOpc = I8085::BR_CC_UGE_8; break;
+    // a > b  <=>  b < a ;  a <= b  <=>  b >= a  (swap operands).
+    case ISD::SETUGT: FusedOpc = I8085::BR_CC_ULT_8; std::swap(LHS, RHS); break;
+    case ISD::SETULE: FusedOpc = I8085::BR_CC_UGE_8; std::swap(LHS, RHS); break;
+    case ISD::SETLT:  FusedOpc = I8085::BR_CC_SLT_8; break;
+    case ISD::SETGE:  FusedOpc = I8085::BR_CC_SGE_8; break;
+    case ISD::SETGT:  FusedOpc = I8085::BR_CC_SLT_8; std::swap(LHS, RHS); break;
+    case ISD::SETLE:  FusedOpc = I8085::BR_CC_SGE_8; std::swap(LHS, RHS); break;
+    default: break;
+    }
+    if (FusedOpc) {
+      SDValue Ops[] = {LHS, RHS, JumpTo, Chain};
+      SDNode *Res = CurDAG->getMachineNode(FusedOpc, dl, MVT::Other, Ops);
+      ReplaceUses(SDValue(N, 0), SDValue(Res, 0));
+      CurDAG->RemoveDeadNode(N);
+      return true;
+    }
+  }
+
+  // Fused compare-register-and-branch for i16 (all condition codes). Bypasses
+  // the SET_*_16 boolean diamond + JMP_8_IF re-test. Register operands only; a
+  // constant operand falls through to the diamond, which materializes it.
+  if (LHS.getSimpleValueType() == MVT::i16 &&
+      !isa<ConstantSDNode>(LHS) && !isa<ConstantSDNode>(RHS)) {
+    unsigned FusedOpc = 0;
+    switch (CC) {
+    case ISD::SETEQ:  FusedOpc = I8085::BR_CC_EQ_16; break;
+    case ISD::SETNE:  FusedOpc = I8085::BR_CC_NE_16; break;
+    case ISD::SETULT: FusedOpc = I8085::BR_CC_ULT_16; break;
+    case ISD::SETUGE: FusedOpc = I8085::BR_CC_UGE_16; break;
+    case ISD::SETUGT: FusedOpc = I8085::BR_CC_ULT_16; std::swap(LHS, RHS); break;
+    case ISD::SETULE: FusedOpc = I8085::BR_CC_UGE_16; std::swap(LHS, RHS); break;
+    case ISD::SETLT:  FusedOpc = I8085::BR_CC_SLT_16; break;
+    case ISD::SETGE:  FusedOpc = I8085::BR_CC_SGE_16; break;
+    case ISD::SETGT:  FusedOpc = I8085::BR_CC_SLT_16; std::swap(LHS, RHS); break;
+    case ISD::SETLE:  FusedOpc = I8085::BR_CC_SGE_16; std::swap(LHS, RHS); break;
+    default: break;
+    }
+    if (FusedOpc) {
+      SDValue Ops[] = {LHS, RHS, JumpTo, Chain};
+      SDNode *Res = CurDAG->getMachineNode(FusedOpc, dl, MVT::Other, Ops);
+      ReplaceUses(SDValue(N, 0), SDValue(Res, 0));
+      CurDAG->RemoveDeadNode(N);
+      return true;
+    }
+  }
+
   // Fall back to SET_* + JMP_8_IF for non-constant, i16, i32, or signed.
   unsigned Opc=get8Opc(CC);
   unsigned JumpOpc=I8085::JMP_8_IF;

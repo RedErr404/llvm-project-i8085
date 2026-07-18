@@ -2160,6 +2160,46 @@ template <> bool I8085ExpandPseudo::expand<I8085::BR_CC_UGE_8_IMM>(Block &MBB, B
   return expandBrCCImm(MBB, MBBI, I8085::JNC, TII);
 }
 
+// Fused compare-register-and-branch expansions.
+// Each emits: MOV A, LHS ; SUB RHS ; Jcc target. After MOV A,LHS the accumulator
+// holds LHS, and SUB RHS sets Z = (LHS == RHS) and CY = (LHS < RHS unsigned).
+static bool expandBrCCReg(MachineBasicBlock &MBB,
+                          MachineBasicBlock::iterator MBBI,
+                          unsigned JmpOpc,
+                          const TargetInstrInfo *TII) {
+  MachineInstr &MI = *MBBI;
+  unsigned LHS = MI.getOperand(0).getReg();
+  unsigned RHS = MI.getOperand(1).getReg();
+  DebugLoc DL = MI.getDebugLoc();
+
+  BuildMI(MBB, MBBI, DL, TII->get(I8085::MOV))
+    .addReg(I8085::A, RegState::Define)
+    .addReg(LHS);
+  BuildMI(MBB, MBBI, DL, TII->get(I8085::SUB))
+    .addReg(RHS);
+  BuildMI(MBB, MBBI, DL, TII->get(JmpOpc))
+    .add(MI.getOperand(2));
+
+  MI.eraseFromParent();
+  return true;
+}
+
+template <> bool I8085ExpandPseudo::expand<I8085::BR_CC_EQ_8>(Block &MBB, BlockIt MBBI) {
+  return expandBrCCReg(MBB, MBBI, I8085::JZ, TII);
+}
+
+template <> bool I8085ExpandPseudo::expand<I8085::BR_CC_NE_8>(Block &MBB, BlockIt MBBI) {
+  return expandBrCCReg(MBB, MBBI, I8085::JNZ, TII);
+}
+
+template <> bool I8085ExpandPseudo::expand<I8085::BR_CC_ULT_8>(Block &MBB, BlockIt MBBI) {
+  return expandBrCCReg(MBB, MBBI, I8085::JC, TII);
+}
+
+template <> bool I8085ExpandPseudo::expand<I8085::BR_CC_UGE_8>(Block &MBB, BlockIt MBBI) {
+  return expandBrCCReg(MBB, MBBI, I8085::JNC, TII);
+}
+
 template <> bool I8085ExpandPseudo::expand<I8085::TRUNC16TO8>(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
   
@@ -3231,6 +3271,10 @@ bool I8085ExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
     EXPAND(I8085::BR_CC_NE_8_IMM);
     EXPAND(I8085::BR_CC_ULT_8_IMM);
     EXPAND(I8085::BR_CC_UGE_8_IMM);
+    EXPAND(I8085::BR_CC_EQ_8);
+    EXPAND(I8085::BR_CC_NE_8);
+    EXPAND(I8085::BR_CC_ULT_8);
+    EXPAND(I8085::BR_CC_UGE_8);
     EXPAND(I8085::TRUNC16TO8);
     EXPAND(I8085::AEXT8TO16);
     EXPAND(I8085::SEXT8TO16);

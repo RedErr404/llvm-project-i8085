@@ -1,0 +1,34 @@
+# RUN: llc -run-pass=i8085-peephole %s -o - | FileCheck %s
+
+# CPI 0 and ORA A set Z/S/P identically, both clear CY and AC, and both leave
+# the accumulator's value unchanged (A|A == A). ORA A is 1 byte / 4 states vs
+# CPI 0 at 2 bytes / 7 states, so the rewrite is an unconditional win.
+# A non-zero CPI must be left untouched.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @cpi0_becomes_ora() { ret void }
+  define void @cpi_nonzero_kept() { ret void }
+...
+
+---
+name:            cpi0_becomes_ora
+body:             |
+  bb.0:
+    ; CHECK-LABEL: name: cpi0_becomes_ora
+    ; CHECK: ORA $a
+    ; CHECK-NOT: CPI
+    CPI 0, implicit-def $sreg, implicit $a
+    RET implicit $sp, implicit-def $sp
+...
+
+---
+name:            cpi_nonzero_kept
+body:             |
+  bb.0:
+    ; CHECK-LABEL: name: cpi_nonzero_kept
+    ; CHECK: CPI 1
+    ; CHECK-NOT: ORA
+    CPI 1, implicit-def $sreg, implicit $a
+    RET implicit $sp, implicit-def $sp
+...

@@ -1,0 +1,81 @@
+# RUN: llc -run-pass=i8085-peephole %s -o - | FileCheck %s
+
+# A conditional branch whose target block is a single bare RET becomes the
+# matching conditional return (Rcc). Rcc affects no registers and no flags, so
+# it is a pure control-flow substitution. A branch to a block that does any work
+# before returning (here, an ORA before the RET) must be left untouched.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @jz_to_bare_ret() { ret void }
+  define void @jnz_to_bare_ret() { ret void }
+  define void @jz_to_nonbare_ret() { ret void }
+...
+
+---
+name:            jz_to_bare_ret
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: jz_to_bare_ret
+  ; CHECK: RZ
+  ; CHECK-NOT: JZ
+  bb.0:
+    successors: %bb.2, %bb.1
+    liveins: $a, $de
+    ORA $a, implicit-def $sreg, implicit-def $a, implicit $a
+    JZ %bb.2, implicit $sreg
+
+  bb.1:
+    successors: %bb.2
+    liveins: $a, $de
+    STAX $de, implicit $a
+
+  bb.2:
+    RET implicit-def dead $sp, implicit $sp
+...
+
+---
+name:            jnz_to_bare_ret
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: jnz_to_bare_ret
+  ; CHECK: RNZ
+  ; CHECK-NOT: JNZ
+  bb.0:
+    successors: %bb.2, %bb.1
+    liveins: $a, $de
+    ORA $a, implicit-def $sreg, implicit-def $a, implicit $a
+    JNZ %bb.2, implicit $sreg
+
+  bb.1:
+    successors: %bb.2
+    liveins: $a, $de
+    STAX $de, implicit $a
+
+  bb.2:
+    RET implicit-def dead $sp, implicit $sp
+...
+
+---
+name:            jz_to_nonbare_ret
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: jz_to_nonbare_ret
+  ; CHECK: JZ %bb.2
+  ; CHECK-NOT: RZ
+  bb.0:
+    successors: %bb.2, %bb.1
+    liveins: $a, $de
+    ORA $a, implicit-def $sreg, implicit-def $a, implicit $a
+    JZ %bb.2, implicit $sreg
+
+  bb.1:
+    successors: %bb.2
+    liveins: $a, $de
+    STAX $de, implicit $a
+
+  bb.2:
+    liveins: $a
+    ORA $a, implicit-def $sreg, implicit-def $a, implicit $a
+    RET implicit-def dead $sp, implicit $sp
+...

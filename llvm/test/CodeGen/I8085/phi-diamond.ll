@@ -217,7 +217,7 @@ define i8 @three_way_phi(i8 %sel) {
 ; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    MOV C, M
 ; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    CPI 0
+; CHECK-NEXT:    ORA A
 ; CHECK-NEXT:    JZ LBB2_3
 ; CHECK-NEXT:  ; %bb.1: ; %check1
 ; CHECK-NEXT:    MVI B, 20

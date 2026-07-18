@@ -172,6 +172,123 @@ MachineBasicBlock *I8085TargetLowering::insertCond8Set(MachineInstr &MI,
 }
 
 
+// Fused signed i8 compare-and-branch. Emits, in-place (no new blocks):
+//   MOV A,rhs ; XRI 0x80 ; MOV vRHS,A     ; biased RHS
+//   MOV A,lhs ; XRI 0x80 ; SUB vRHS       ; A = biasedLHS - biasedRHS
+//   Jcc target                            ; JC (SLT) / JNC (SGE)
+// The XRI 0x80 bias turns a signed compare into an unsigned one:
+//   signed(a) <cc> signed(b)  ==  unsigned(a^0x80) <cc> unsigned(b^0x80).
+// vRHS is a virtual register (this runs pre-RA); its value is live across the
+// `MOV A,lhs` that clobbers A, so the allocator cannot place it in A.
+MachineBasicBlock *I8085TargetLowering::insertBrCCSigned8(MachineInstr &MI,
+                                                  MachineBasicBlock *MBB) const {
+  const I8085InstrInfo &TII = (const I8085InstrInfo &)*MBB->getParent()
+                                ->getSubtarget().getInstrInfo();
+  DebugLoc dl = MI.getDebugLoc();
+  MachineFunction *MF = MBB->getParent();
+  auto It = MachineBasicBlock::iterator(MI);
+
+  unsigned LHS = MI.getOperand(0).getReg();
+  unsigned RHS = MI.getOperand(1).getReg();
+  unsigned JmpOpc = (MI.getOpcode() == I8085::BR_CC_SLT_8) ? I8085::JC
+                                                           : I8085::JNC;
+
+  unsigned vRHS = MF->getRegInfo().createVirtualRegister(getRegClassFor(MVT::i8));
+
+  BuildMI(*MBB, It, dl, TII.get(I8085::MOV))
+      .addReg(I8085::A, RegState::Define).addReg(RHS);
+  BuildMI(*MBB, It, dl, TII.get(I8085::XRI)).addImm(0x80);
+  BuildMI(*MBB, It, dl, TII.get(I8085::MOV))
+      .addReg(vRHS, RegState::Define).addReg(I8085::A);
+  BuildMI(*MBB, It, dl, TII.get(I8085::MOV))
+      .addReg(I8085::A, RegState::Define).addReg(LHS);
+  BuildMI(*MBB, It, dl, TII.get(I8085::XRI)).addImm(0x80);
+  BuildMI(*MBB, It, dl, TII.get(I8085::SUB)).addReg(vRHS);
+  BuildMI(*MBB, It, dl, TII.get(JmpOpc)).add(MI.getOperand(2));
+
+  MI.eraseFromParent();
+  return MBB;
+}
+
+// Fused i16 compare-and-branch, all condition codes, emitted in-place (no new
+// blocks). See BR_CC_*_16 in the .td for the per-condition sequence. Uses the
+// SUB-then-SBB borrow for the 16-bit magnitude compare (MOV preserves CY so the
+// low-byte borrow feeds the high-byte SBB), an XOR/OR combine for equality, and
+// the high-byte sign bias (XRI 0x80) to reduce signed to unsigned. All temps are
+// virtual registers (this runs pre-RA).
+MachineBasicBlock *I8085TargetLowering::insertBrCC16(MachineInstr &MI,
+                                                  MachineBasicBlock *MBB) const {
+  const I8085InstrInfo &TII = (const I8085InstrInfo &)*MBB->getParent()
+                                ->getSubtarget().getInstrInfo();
+  DebugLoc dl = MI.getDebugLoc();
+  MachineFunction *MF = MBB->getParent();
+  MachineRegisterInfo &MRI = MF->getRegInfo();
+  auto It = MachineBasicBlock::iterator(MI);
+  unsigned Opc = MI.getOpcode();
+
+  unsigned LHS = MI.getOperand(0).getReg();
+  unsigned RHS = MI.getOperand(1).getReg();
+  const TargetRegisterClass *RC8 = getRegClassFor(MVT::i8);
+
+  auto Byte = [&](unsigned Pair, unsigned SubIdx) {
+    unsigned V = MRI.createVirtualRegister(RC8);
+    BuildMI(*MBB, It, dl, TII.get(TargetOpcode::COPY), V)
+        .addReg(Pair, 0, SubIdx);
+    return V;
+  };
+  unsigned lhsLo = Byte(LHS, I8085::sub_lo), lhsHi = Byte(LHS, I8085::sub_hi);
+  unsigned rhsLo = Byte(RHS, I8085::sub_lo), rhsHi = Byte(RHS, I8085::sub_hi);
+
+  auto MovA = [&](unsigned R) {
+    BuildMI(*MBB, It, dl, TII.get(I8085::MOV))
+        .addReg(I8085::A, RegState::Define).addReg(R);
+  };
+  auto Save = [&]() {
+    unsigned V = MRI.createVirtualRegister(RC8);
+    BuildMI(*MBB, It, dl, TII.get(I8085::MOV))
+        .addReg(V, RegState::Define).addReg(I8085::A);
+    return V;
+  };
+  auto Alu = [&](unsigned AluOpc, unsigned R) {
+    BuildMI(*MBB, It, dl, TII.get(AluOpc)).addReg(R);
+  };
+  auto Xri = [&]() { BuildMI(*MBB, It, dl, TII.get(I8085::XRI)).addImm(0x80); };
+  auto Jmp = [&](unsigned JOpc) {
+    BuildMI(*MBB, It, dl, TII.get(JOpc)).add(MI.getOperand(2));
+  };
+
+  switch (Opc) {
+  case I8085::BR_CC_EQ_16:
+  case I8085::BR_CC_NE_16: {
+    MovA(lhsLo); Alu(I8085::XRA, rhsLo);        // A = lo ^ lo
+    unsigned t = Save();                        // t = low-byte difference
+    MovA(lhsHi); Alu(I8085::XRA, rhsHi);        // A = hi ^ hi
+    Alu(I8085::ORA, t);                         // Z iff both halves equal
+    Jmp(Opc == I8085::BR_CC_EQ_16 ? I8085::JZ : I8085::JNZ);
+    break;
+  }
+  case I8085::BR_CC_ULT_16:
+  case I8085::BR_CC_UGE_16: {
+    MovA(lhsLo); Alu(I8085::SUB, rhsLo);        // CY = low borrow
+    MovA(lhsHi); Alu(I8085::SBB, rhsHi);        // CY = 16-bit borrow
+    Jmp(Opc == I8085::BR_CC_ULT_16 ? I8085::JC : I8085::JNC);
+    break;
+  }
+  case I8085::BR_CC_SLT_16:
+  case I8085::BR_CC_SGE_16: {
+    MovA(lhsHi); Xri(); unsigned ta = Save();   // ta = biased lhsHi
+    MovA(rhsHi); Xri(); unsigned tb = Save();   // tb = biased rhsHi
+    MovA(lhsLo); Alu(I8085::SUB, rhsLo);        // CY = low borrow
+    MovA(ta);    Alu(I8085::SBB, tb);           // CY = signed compare
+    Jmp(Opc == I8085::BR_CC_SLT_16 ? I8085::JC : I8085::JNC);
+    break;
+  }
+  }
+
+  MI.eraseFromParent();
+  return MBB;
+}
+
 MachineBasicBlock *I8085TargetLowering::insertSigned8Cond(MachineInstr &MI,
                                                   MachineBasicBlock *MBB) const {
 

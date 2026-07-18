@@ -7,7 +7,7 @@
 define i16 @counted_loop_sum(i16 %n) {
 ; CHECK-LABEL: counted_loop_sum:
 ; CHECK: DAD SP
-; CHECK: CMP
+; CHECK: SUB
 ; CHECK: JNZ
 ; CHECK: RET
 entry:

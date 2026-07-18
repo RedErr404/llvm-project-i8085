@@ -4093,11 +4093,21 @@ MachineBasicBlock *I8085TargetLowering::EmitInstrWithCustomInserter(MachineInstr
   case I8085::SET_UGE_8:
   case I8085::SET_ULE_8:
     return insertCond8Set(MI, MBB);
+  case I8085::BR_CC_SLT_8:
+  case I8085::BR_CC_SGE_8:
+    return insertBrCCSigned8(MI, MBB);
+  case I8085::BR_CC_EQ_16:
+  case I8085::BR_CC_NE_16:
+  case I8085::BR_CC_ULT_16:
+  case I8085::BR_CC_UGE_16:
+  case I8085::BR_CC_SLT_16:
+  case I8085::BR_CC_SGE_16:
+    return insertBrCC16(MI, MBB);
   case I8085::SET_GT_8:
   case I8085::SET_LT_8:
   case I8085::SET_GE_8:
   case I8085::SET_LE_8:
-    return insertSigned8Cond(MI,MBB); 
+    return insertSigned8Cond(MI,MBB);
   case I8085::SET_DIFF_SIGN_GT_8:
   case I8085::SET_DIFF_SIGN_LT_8:
   case I8085::SET_DIFF_SIGN_GE_8:

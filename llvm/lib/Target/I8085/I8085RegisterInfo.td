@@ -93,6 +93,14 @@ def GR16 : RegisterClass<"I8085", [i16], 8,
                             add BC,DE,HL,SP
                         )>;
 
+// The addressable 16-bit pairs only (no SP). Because every member has sub_lo /
+// sub_hi sub-registers, this class supports byte extraction via subreg COPY,
+// which the full GR16 (which includes SP) does not. Used for fused i16 compares.
+def GR16Pair : RegisterClass<"I8085", [i16], 8,
+                        (
+                            add BC,DE,HL
+                        )>;
+
 def GR16BD : RegisterClass<"I8085", [i16], 8,
                         (
                             add BC,DE

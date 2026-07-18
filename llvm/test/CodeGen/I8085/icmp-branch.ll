@@ -55,9 +55,9 @@ f:
 
 define i8 @br_slt_i16(i16 %a, i16 %b) {
 ; CHECK-LABEL: br_slt_i16:
-; CHECK: XRA
-; CHECK: ANI 128
-; CHECK: JNZ
+; CHECK: XRI 128
+; CHECK: SUB
+; CHECK: SBB
 ; CHECK: MVI
 ; CHECK: RET
 entry:

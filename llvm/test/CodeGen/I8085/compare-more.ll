@@ -62,7 +62,7 @@ define i8 @cmp_sgt_i8(i8 %a, i8 %b) {
 ; CHECK-NEXT:    SUB B
 ; CHECK-NEXT:    MVI A, 1
 ; CHECK-NEXT:    JZ LBB1_2
-; CHECK-NEXT:    JNC LBB1_5
+; CHECK-NEXT:    RNC
 ; CHECK-NEXT:  LBB1_2:
 ; CHECK-NEXT:    MVI A, 0
 ; CHECK-NEXT:    RET
@@ -73,7 +73,6 @@ define i8 @cmp_sgt_i8(i8 %a, i8 %b) {
 ; CHECK-NEXT:    JNZ LBB1_2
 ; CHECK-NEXT:  LBB1_4:
 ; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:  LBB1_5:
 ; CHECK-NEXT:    RET
 
   %cmp = icmp sgt i8 %a, %b

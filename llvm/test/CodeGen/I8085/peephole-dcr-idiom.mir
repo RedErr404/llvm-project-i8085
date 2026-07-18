@@ -1,0 +1,134 @@
+# RUN: llc -run-pass=i8085-peephole -verify-machineinstrs %s -o - | FileCheck %s
+
+# The decrement/increment-and-test idiom
+#   $a = MOV r ; SUI 1 ; r = MOV $a ; ORA $a ; JNZ   ->   DCR r ; JNZ
+#   $a = MOV r ; ADI 1 ; r = MOV $a ; ORA $a ; JNZ   ->   INR r ; JNZ
+# collapses to a single DCR/INR when A and the flags are dead after the branch.
+# DCR/INR preserve CY, so the rewrite must NOT fire when the flags (CY) are live
+# out of the block (forced below by making $sreg a live-in of the successor).
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @dec_dcr() { ret void }
+  define void @dec_dcr_reload() { ret void }
+  define void @dec_dcr_reload_test() { ret void }
+  define void @inc_inr() { ret void }
+  define void @dec_flags_live() { ret void }
+...
+
+# A is dead out (loop reloads it; exit ignores it) and flags are dead out, so
+# the four instructions collapse to DCR $b.
+---
+name:            dec_dcr
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: dec_dcr
+  ; CHECK: DCR $b
+  ; CHECK-NOT: SUI
+  ; CHECK-NOT: ORA
+  bb.0:
+    successors: %bb.0, %bb.1
+    liveins: $b
+    $a = MOV $b
+    SUI 1, implicit-def $sreg, implicit-def $a, implicit $a
+    $b = MOV $a
+    ORA $a, implicit-def $sreg, implicit-def $a, implicit $a
+    JNZ %bb.0, implicit $sreg
+
+  bb.1:
+    RET implicit-def dead $sp, implicit $sp
+...
+
+# Reload form: the consumer is a redundant `$a = MOV $b` (reload of the just
+# decremented value) rather than an ORA/CPI; the branch reads the Z the SUI set.
+# This is what the real -Os counter loop actually produces. -> DCR $b.
+---
+name:            dec_dcr_reload
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: dec_dcr_reload
+  ; CHECK: DCR $b
+  ; CHECK-NOT: SUI
+  bb.0:
+    successors: %bb.0, %bb.1
+    liveins: $b
+    $a = MOV $b
+    SUI 1, implicit-def $sreg, implicit-def $a, implicit $a
+    $b = MOV $a
+    $a = MOV $b
+    JNZ %bb.0, implicit $sreg
+
+  bb.1:
+    RET implicit-def dead $sp, implicit $sp
+...
+
+# The exact shape a real -Os counter loop produces: reload MOV A,r AND an
+# explicit CPI 0 test between MOV r,A and the branch. -> DCR $b.
+---
+name:            dec_dcr_reload_test
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: dec_dcr_reload_test
+  ; CHECK: DCR $b
+  ; CHECK-NOT: SUI
+  ; CHECK-NOT: CPI
+  bb.0:
+    successors: %bb.0, %bb.1
+    liveins: $b
+    $a = MOV $b
+    SUI 1, implicit-def $sreg, implicit-def $a, implicit $a
+    $b = MOV $a
+    $a = MOV $b
+    CPI 0, implicit-def $sreg, implicit $a
+    JNZ %bb.0, implicit $sreg
+
+  bb.1:
+    RET implicit-def dead $sp, implicit $sp
+...
+
+# Increment variant -> INR.
+---
+name:            inc_inr
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: inc_inr
+  ; CHECK: INR $c
+  ; CHECK-NOT: ADI
+  ; CHECK-NOT: ORA
+  bb.0:
+    successors: %bb.0, %bb.1
+    liveins: $c
+    $a = MOV $c
+    ADI 1, implicit-def $sreg, implicit-def $a, implicit $a
+    $c = MOV $a
+    ORA $a, implicit-def $sreg, implicit-def $a, implicit $a
+    JNZ %bb.0, implicit $sreg
+
+  bb.1:
+    RET implicit-def dead $sp, implicit $sp
+...
+
+# Negative: a successor reads $sreg (flags live out), so DCR (which preserves CY
+# instead of clearing it) could change behavior. Must NOT fire.
+---
+name:            dec_flags_live
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: dec_flags_live
+  ; CHECK: SUI 1
+  ; CHECK: ORA $a
+  ; CHECK-NOT: DCR
+  bb.0:
+    successors: %bb.0, %bb.1
+    liveins: $b
+    $a = MOV $b
+    SUI 1, implicit-def $sreg, implicit-def $a, implicit $a
+    $b = MOV $a
+    ORA $a, implicit-def $sreg, implicit-def $a, implicit $a
+    JNZ %bb.0, implicit $sreg
+
+  bb.1:
+    liveins: $sreg
+    JC %bb.1, implicit $sreg
+    RET implicit-def dead $sp, implicit $sp
+...

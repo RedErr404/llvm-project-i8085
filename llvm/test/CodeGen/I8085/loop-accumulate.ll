@@ -4,7 +4,7 @@
 
 define i16 @loop_sum(i16 %n) {
 ; CHECK-LABEL: loop_sum:
-; CHECK: JMP
+; CHECK: JC
 ; CHECK: RET
 entry:
   br label %loop

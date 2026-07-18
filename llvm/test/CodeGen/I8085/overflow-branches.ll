@@ -11,44 +11,36 @@ define i8 @br_uadd_ov(i16 %a, i16 %b) {
 ; CHECK-LABEL: br_uadd_ov:
 ; CHECK:         .cfi_startproc
 ; CHECK-NEXT:  ; %bb.0: ; %entry
-; CHECK-NEXT:    LXI H, 2
+; CHECK-NEXT:    LXI H, 4
 ; CHECK-NEXT:    DAD SP
-; CHECK-NEXT:    MOV E, M
+; CHECK-NEXT:    MOV A, M
 ; CHECK-NEXT:    INX H
-; CHECK-NEXT:    MOV D, M
-; CHECK-NEXT:    INX H
+; CHECK-NEXT:    MOV H, M
+; CHECK-NEXT:    MOV L, A
+; CHECK-NEXT:    PUSH H
+; CHECK-NEXT:    LXI H, 4
+; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    MOV C, M
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV B, M
-; CHECK-NEXT:    MOV H, D
-; CHECK-NEXT:    MOV L, E
-; CHECK-NEXT:    MOV A, L
-; CHECK-NEXT:    ADD C
-; CHECK-NEXT:    MOV L, A
-; CHECK-NEXT:    MOV A, H
-; CHECK-NEXT:    ADC B
-; CHECK-NEXT:    MOV H, A
-; CHECK-NEXT:    MOV B, H
-; CHECK-NEXT:    MOV C, L
-; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    SUB E
-; CHECK-NEXT:    MOV C, A
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    SBB D
-; CHECK-NEXT:    MOV B, A
-; CHECK-NEXT:    JNC LBB0_1
-; CHECK-NEXT:  ; %bb.2: ; %entry
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JNZ LBB0_4
-; CHECK-NEXT:  LBB0_3: ; %t
+; CHECK-NEXT:    POP H
+; CHECK-NEXT:    MOV D, B
+; CHECK-NEXT:    MOV E, C
+; CHECK-NEXT:    MOV A, E
+; CHECK-NEXT:    ADD L
+; CHECK-NEXT:    MOV E, A
+; CHECK-NEXT:    MOV A, D
+; CHECK-NEXT:    ADC H
+; CHECK-NEXT:    MOV D, A
+; CHECK-NEXT:    MOV A, E
+; CHECK-NEXT:    SUB C
+; CHECK-NEXT:    MOV A, D
+; CHECK-NEXT:    SBB B
+; CHECK-NEXT:    JNC LBB0_2
+; CHECK-NEXT:  ; %bb.1: ; %t
 ; CHECK-NEXT:    MVI A, 1
 ; CHECK-NEXT:    RET
-; CHECK-NEXT:  LBB0_1: ; %entry
-; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JZ LBB0_3
-; CHECK-NEXT:  LBB0_4: ; %f
+; CHECK-NEXT:  LBB0_2: ; %f
 ; CHECK-NEXT:    MVI A, 0
 ; CHECK-NEXT:    RET
 entry:
@@ -165,19 +157,11 @@ define i8 @br_usub_ov(i8 %a, i8 %b) {
 ; CHECK-NEXT:    DCX H
 ; CHECK-NEXT:    MOV A, M
 ; CHECK-NEXT:    SUB B
-; CHECK-NEXT:    JNC LBB2_1
-; CHECK-NEXT:  ; %bb.3: ; %entry
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JNZ LBB2_5
-; CHECK-NEXT:  LBB2_4: ; %t
+; CHECK-NEXT:    JNC LBB2_2
+; CHECK-NEXT:  ; %bb.1: ; %t
 ; CHECK-NEXT:    MVI A, 1
 ; CHECK-NEXT:    RET
-; CHECK-NEXT:  LBB2_1:
-; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JZ LBB2_4
-; CHECK-NEXT:  LBB2_5: ; %f
+; CHECK-NEXT:  LBB2_2: ; %f
 ; CHECK-NEXT:    MVI A, 0
 ; CHECK-NEXT:    RET
 entry:

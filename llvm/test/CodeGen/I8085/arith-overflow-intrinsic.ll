@@ -54,10 +54,10 @@ entry:
 ; Branch on overflow
 define i16 @uadd_branch_overflow(i16 %a, i16 %b) {
 ; CHECK-LABEL: uadd_branch_overflow:
-; CHECK: ADD E
-; CHECK: ADC D
+; CHECK: ADD
+; CHECK: ADC
 ; CHECK: SBB
-; CHECK: JNC
+; CHECK: RNC
 ; CHECK: LXI B, -1
 ; CHECK: RET
 entry:

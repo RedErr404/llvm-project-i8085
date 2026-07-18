@@ -15,10 +15,13 @@
 #include "I8085Subtarget.h"
 #include "MCTargetDesc/I8085MCTargetDesc.h"
 
+#include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
+#include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/Support/Debug.h"
 
 using namespace llvm;
@@ -26,6 +29,38 @@ using namespace llvm;
 #define DEBUG_TYPE "i8085-peephole"
 
 namespace {
+
+// Map a conditional branch opcode to the matching conditional-return opcode.
+// Returns 0 if the opcode is not a conditional branch we can turn into a return.
+static unsigned condReturnOpc(unsigned BrOpc) {
+  switch (BrOpc) {
+  case I8085::JZ:  return I8085::RZ;
+  case I8085::JNZ: return I8085::RNZ;
+  case I8085::JC:  return I8085::RC;
+  case I8085::JNC: return I8085::RNC;
+  case I8085::JP:  return I8085::RP;
+  case I8085::JM:  return I8085::RM;
+  case I8085::JPE: return I8085::RPE;
+  case I8085::JPO: return I8085::RPO;
+  default:         return 0;
+  }
+}
+
+// True if MBB's only non-debug instruction is a bare, unconditional RET. Such a
+// block does no stack cleanup, so a branch to it can be replaced by a
+// conditional return without skipping any epilogue work.
+static bool isBareReturnBlock(const MachineBasicBlock &MBB) {
+  const MachineInstr *Only = nullptr;
+  for (const MachineInstr &MI : MBB) {
+    if (MI.isDebugInstr())
+      continue;
+    if (Only)
+      return false;
+    Only = &MI;
+  }
+  return Only && Only->getOpcode() == I8085::RET;
+}
+
 class I8085Peephole : public MachineFunctionPass {
 public:
   static char ID;
@@ -43,6 +78,124 @@ public:
     for (MachineBasicBlock &MBB : MF) {
       for (auto MI = MBB.begin(); MI != MBB.end();) {
         auto Next = std::next(MI);
+
+        // Conditional-return: a conditional branch whose target block is a lone
+        // bare RET becomes the matching conditional return (Jcc L / L: RET ->
+        // Rcc). Rcc affects no registers and no flags, and falls through when
+        // not taken exactly like the branch did, so this is a pure control-flow
+        // substitution that saves 2 bytes (3->1) and a taken jump.
+        if (unsigned Rcc = condReturnOpc(MI->getOpcode())) {
+          if (MI->getNumOperands() >= 1 && MI->getOperand(0).isMBB()) {
+            MachineBasicBlock *TBB = MI->getOperand(0).getMBB();
+            if (isBareReturnBlock(*TBB)) {
+              const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
+              BuildMI(MBB, MI, MI->getDebugLoc(), TII->get(Rcc));
+              MI = MBB.erase(MI);
+
+              // The branch edge to the return block is gone. Drop TBB as a CFG
+              // successor unless it is still reachable: some other terminator
+              // still targets it, or it is the fall-through block.
+              bool StillTargeted = false;
+              for (const MachineInstr &Term : MBB.terminators())
+                for (const MachineOperand &Op : Term.operands())
+                  if (Op.isMBB() && Op.getMBB() == TBB)
+                    StillTargeted = true;
+              auto NextMBB = std::next(MBB.getIterator());
+              const MachineBasicBlock *LayoutNext =
+                  NextMBB != MF.end() ? &*NextMBB : nullptr;
+              bool FallsThrough = MBB.empty() || !MBB.back().isBarrier();
+              bool FallsToTBB = FallsThrough && TBB == LayoutNext;
+              if (!StillTargeted && !FallsToTBB && MBB.isSuccessor(TBB))
+                MBB.removeSuccessor(TBB);
+
+              Changed = true;
+              continue;
+            }
+          }
+        }
+
+        // DCR/INR counter idiom. The frontend lowers `--r` / `++r` at the head
+        // of a counter loop as
+        //   MOV A,r ; SUI 1 ; MOV r,A ; [MOV A,r] ; [ORA A | CPI 0] ; (JZ | JNZ)
+        //   MOV A,r ; ADI 1 ; MOV r,A ; [MOV A,r] ; [ORA A | CPI 0] ; (JZ | JNZ)
+        // The bracketed instructions are an optional redundant reload of the
+        // just-updated value and an optional explicit re-test; either, both, or
+        // neither may be present. In every shape the branch's Z comes from the
+        // SUI/ADI on r-1 / r+1, which DCR/INR reproduce exactly (Z,S,P,AC), so
+        // the whole run collapses to `DCR r` / `INR r` before the branch.
+        //
+        // DCR/INR differ from the SUI/ADI+test in two ways: they PRESERVE CY
+        // (the arithmetic + ORA/CPI cleared it) and they leave the result only
+        // in r, not A. So the rewrite is valid only when the branch reads Z
+        // (JZ/JNZ, never a CY branch) and both A and the flags are dead after
+        // the branch. Liveness comes from the post-RA live-in lists, whose
+        // accuracy the machine verifier enforces (a cross-block flag/reg use
+        // without a live-in errors out), so a stale-too-small list cannot
+        // silently turn this into a miscompile.
+        if (MI->getOpcode() == I8085::MOV && MI->getNumOperands() >= 2 &&
+            MI->getOperand(0).isReg() &&
+            MI->getOperand(0).getReg() == I8085::A &&
+            MI->getOperand(1).isReg() &&
+            MI->getOperand(1).getReg() != I8085::A &&
+            MI->getOperand(1).getReg() != I8085::M) {
+          Register R = MI->getOperand(1).getReg();
+          auto IsMovAR = [&](MachineBasicBlock::iterator It) {
+            return It != MBB.end() && It->getOpcode() == I8085::MOV &&
+                   It->getNumOperands() >= 2 && It->getOperand(0).isReg() &&
+                   It->getOperand(0).getReg() == I8085::A &&
+                   It->getOperand(1).isReg() && It->getOperand(1).getReg() == R;
+          };
+          auto I1 = std::next(MI);
+          bool IsDec = I1 != MBB.end() && I1->getOpcode() == I8085::SUI;
+          bool IsInc = I1 != MBB.end() && I1->getOpcode() == I8085::ADI;
+          if ((IsDec || IsInc) && I1->getNumOperands() >= 1 &&
+              I1->getOperand(0).isImm() && I1->getOperand(0).getImm() == 1) {
+            auto I2 = std::next(I1);
+            bool MovBack = I2 != MBB.end() && I2->getOpcode() == I8085::MOV &&
+                           I2->getNumOperands() >= 2 &&
+                           I2->getOperand(0).isReg() &&
+                           I2->getOperand(0).getReg() == R &&
+                           I2->getOperand(1).isReg() &&
+                           I2->getOperand(1).getReg() == I8085::A;
+            if (MovBack) {
+              // Skip an optional reload MOV A,r, then an optional Z re-test.
+              auto Cur = std::next(I2);
+              if (IsMovAR(Cur))
+                Cur = std::next(Cur);
+              if (Cur != MBB.end() &&
+                  ((Cur->getOpcode() == I8085::ORA &&
+                    Cur->getNumOperands() >= 1 && Cur->getOperand(0).isReg() &&
+                    Cur->getOperand(0).getReg() == I8085::A) ||
+                   (Cur->getOpcode() == I8085::CPI &&
+                    Cur->getNumOperands() >= 1 && Cur->getOperand(0).isImm() &&
+                    Cur->getOperand(0).getImm() == 0)))
+                Cur = std::next(Cur);
+              bool ZBranch = Cur != MBB.end() &&
+                             (Cur->getOpcode() == I8085::JZ ||
+                              Cur->getOpcode() == I8085::JNZ);
+              if (ZBranch) {
+                const TargetRegisterInfo *TRI =
+                    MF.getSubtarget().getRegisterInfo();
+                LivePhysRegs LiveOut(*TRI);
+                LiveOut.addLiveOuts(MBB);
+                if (!LiveOut.contains(I8085::A) &&
+                    !LiveOut.contains(I8085::SREG)) {
+                  const TargetInstrInfo *TII =
+                      MF.getSubtarget().getInstrInfo();
+                  BuildMI(MBB, MI, MI->getDebugLoc(),
+                          TII->get(IsDec ? I8085::DCR : I8085::INR))
+                      .addReg(R, RegState::Define)
+                      .addReg(R);
+                  // Erase [MI, branch): the MOV/arith/MOV and any reload/test.
+                  MI = MBB.erase(MI, Cur);
+                  Changed = true;
+                  continue;
+                }
+              }
+            }
+          }
+        }
+
         if (MI->getOpcode() == I8085::MOV && MI->getNumOperands() >= 2 &&
             MI->getOperand(0).isReg() && MI->getOperand(1).isReg()) {
           Register Dst = MI->getOperand(0).getReg();
@@ -154,6 +307,22 @@ public:
           MI->addOperand(MachineOperand::CreateReg(I8085::A, false));
           Changed = true;
           MI = Next;
+          continue;
+        }
+
+        // CPI 0 -> ORA A (2 bytes/7 states -> 1 byte/4 states). Both set
+        // Z,S,P from A and clear CY and AC, and A|A leaves the accumulator
+        // unchanged, so the substitution preserves every architectural
+        // effect. CPI defines only SREG whereas ORA also (harmlessly)
+        // redefines A with the same value, so build a fresh ORA to get the
+        // correct implicit operand list rather than mutating the CPI in place.
+        if (MI->getOpcode() == I8085::CPI && MI->getNumOperands() >= 1 &&
+            MI->getOperand(0).isImm() && MI->getOperand(0).getImm() == 0) {
+          const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
+          BuildMI(MBB, MI, MI->getDebugLoc(), TII->get(I8085::ORA))
+              .addReg(I8085::A);
+          MI = MBB.erase(MI);
+          Changed = true;
           continue;
         }
 

@@ -150,7 +150,12 @@ let isBarrier = 1, isBranch = 1, isTerminator = 1 in {
                                            "JMP $k", [(br bb: $k)]>; 
 }
 
-let isTerminator = 1, isReturn = 1, isBarrier = 1 in {
+// Conditional returns test a status flag (Uses SREG) and, when the condition
+// holds, pop the return address off the stack exactly like RET (Uses/Defs SP).
+// Unlike the unconditional RET they are NOT barriers: when the condition is
+// false, control falls through to the next instruction. They alter no registers
+// and no flags of their own.
+let isTerminator = 1, isReturn = 1, Uses = [SREG, SP], Defs = [SP] in {
    def RNZ : F1<0b11000000,(outs),(ins),"RNZ", []>;
    def RZ  : F1<0b11001000,(outs),(ins),"RZ", []>;
    def RNC : F1<0b11010000,(outs),(ins),"RNC", []>;
@@ -188,6 +193,63 @@ let isBranch = 1, isTerminator = 1, Defs=[SREG, A] in {
    def BR_CC_UGE_8_IMM : I8085Pseudo<(outs),
        (ins GR8:$lhs, I8085Imm8:$rhs, addressTarget:$k),
        "BR_CC_UGE_8_IMM $lhs, $rhs, $k", []>;
+}
+
+// Fused compare-register-and-branch pseudos for i8 (register RHS).
+// Same idea as the *_IMM forms but the RHS is a register, so they bypass the
+// SET_*_8 boolean diamond + JMP_8_IF re-test for `if (a <cc> b)` with two
+// variables. Expanded to MOV A,lhs ; SUB rhs ; Jcc target.
+// $rhs is constrained to GR8NoAHL ({B,C,D,E}) so the register allocator cannot
+// place it in A: the expansion does `MOV A,lhs` first, which would otherwise
+// clobber an RHS that shared the accumulator (`SUB A` == 0).
+let isBranch = 1, isTerminator = 1, Defs=[SREG, A] in {
+   def BR_CC_EQ_8 : I8085Pseudo<(outs),
+       (ins GR8:$lhs, GR8NoAHL:$rhs, addressTarget:$k),
+       "BR_CC_EQ_8 $lhs, $rhs, $k", []>;
+   def BR_CC_NE_8 : I8085Pseudo<(outs),
+       (ins GR8:$lhs, GR8NoAHL:$rhs, addressTarget:$k),
+       "BR_CC_NE_8 $lhs, $rhs, $k", []>;
+   def BR_CC_ULT_8 : I8085Pseudo<(outs),
+       (ins GR8:$lhs, GR8NoAHL:$rhs, addressTarget:$k),
+       "BR_CC_ULT_8 $lhs, $rhs, $k", []>;
+   def BR_CC_UGE_8 : I8085Pseudo<(outs),
+       (ins GR8:$lhs, GR8NoAHL:$rhs, addressTarget:$k),
+       "BR_CC_UGE_8 $lhs, $rhs, $k", []>;
+}
+
+// Fused signed compare-register-and-branch for i8. Uses the sign-bias identity
+// signed(a) <cc> signed(b)  ==  unsigned(a^0x80) <cc> unsigned(b^0x80), so the
+// custom inserter biases both operands by XRI 0x80 and then does an unsigned
+// SUB + carry branch. Needs a temp register for the biased RHS, hence a
+// custom-inserter pseudo (runs pre-RA where virtual registers are available).
+let isBranch = 1, isTerminator = 1, Defs=[SREG, A] in {
+   def BR_CC_SLT_8 : I8085InserterPseudo<(outs),
+       (ins GR8:$lhs, GR8:$rhs, addressTarget:$k),
+       "BR_CC_SLT_8 $lhs, $rhs, $k", []>;
+   def BR_CC_SGE_8 : I8085InserterPseudo<(outs),
+       (ins GR8:$lhs, GR8:$rhs, addressTarget:$k),
+       "BR_CC_SGE_8 $lhs, $rhs, $k", []>;
+}
+
+// Fused compare-register-and-branch for i16, all condition codes. The custom
+// inserter extracts the two bytes of each operand and emits a linear sequence:
+//   EQ/NE       : XOR the low bytes and the high bytes, OR them (Z iff equal)
+//   ULT/UGE     : SUB low, SBB high (CY = 16-bit borrow), branch on carry
+//   SLT/SGE     : bias both high bytes by XRI 0x80, then the unsigned sequence
+// bypassing the SET_*_16 boolean diamond entirely.
+let isBranch = 1, isTerminator = 1, Defs=[SREG, A] in {
+   def BR_CC_EQ_16  : I8085InserterPseudo<(outs),
+       (ins GR16Pair:$lhs, GR16Pair:$rhs, addressTarget:$k), "BR_CC_EQ_16 $lhs, $rhs, $k", []>;
+   def BR_CC_NE_16  : I8085InserterPseudo<(outs),
+       (ins GR16Pair:$lhs, GR16Pair:$rhs, addressTarget:$k), "BR_CC_NE_16 $lhs, $rhs, $k", []>;
+   def BR_CC_ULT_16 : I8085InserterPseudo<(outs),
+       (ins GR16Pair:$lhs, GR16Pair:$rhs, addressTarget:$k), "BR_CC_ULT_16 $lhs, $rhs, $k", []>;
+   def BR_CC_UGE_16 : I8085InserterPseudo<(outs),
+       (ins GR16Pair:$lhs, GR16Pair:$rhs, addressTarget:$k), "BR_CC_UGE_16 $lhs, $rhs, $k", []>;
+   def BR_CC_SLT_16 : I8085InserterPseudo<(outs),
+       (ins GR16Pair:$lhs, GR16Pair:$rhs, addressTarget:$k), "BR_CC_SLT_16 $lhs, $rhs, $k", []>;
+   def BR_CC_SGE_16 : I8085InserterPseudo<(outs),
+       (ins GR16Pair:$lhs, GR16Pair:$rhs, addressTarget:$k), "BR_CC_SGE_16 $lhs, $rhs, $k", []>;
 }
 
 let isBranch = 1, isTerminator = 1, Defs=[SREG, A] in {
