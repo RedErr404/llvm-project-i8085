@@ -460,8 +460,6 @@ let Uses = [H,L] in {
 
   let Uses=[H,L] in def SHLD : F6<0b00100010,(outs), (ins imm16Addr: $k), "SHLD $k", []>;
 
-  let Defs=[H,L] in def LHLD : F6<0b00101010,(outs), (ins imm16Addr: $k), "LHLD $k", []>;
-  
   let Uses=[H,L] in def MOV_M  : FMOV_T_M<(outs), (ins GR8: $rs), "MOV M, $rs", []>;
 
   let Uses=[H,L] in def MOV_FROM_M  : FMOV_F_M<(outs GR8: $rd), (ins), "MOV $rd, M", []>;
@@ -469,6 +467,11 @@ let Uses = [H,L] in {
   let Uses=[H,L] in
   def MVI_M : F5<0b00110110,(outs), (ins I8085Imm8: $k), "MVI M, $k", []>;
 }          
+
+// LHLD writes HL from memory; it does NOT read HL, so it is defined outside the
+// `let Uses=[H,L]` block above (which would otherwise mark H/L as used and trip
+// the verifier with "using an undefined physical register").
+let Defs=[H,L] in def LHLD : F6<0b00101010,(outs), (ins imm16Addr: $k), "LHLD $k", []>;
 
 let Uses=[A] in def STA : F6<0b00110010,(outs), (ins imm16Addr: $k), "STA $k", []>;
 let Defs=[A] in def LDA : F6<0b00111010,(outs), (ins imm16Addr: $k), "LDA $k", []>;

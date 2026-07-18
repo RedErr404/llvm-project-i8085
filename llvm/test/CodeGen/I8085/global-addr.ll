@@ -20,10 +20,9 @@ define void @store_globals(i8 %a, i16 %b) {
 ; CHECK-NEXT:    MOV C, M
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV B, M
-; CHECK-NEXT:    LXI H, g16
-; CHECK-NEXT:    MOV M, C
-; CHECK-NEXT:    INX H
-; CHECK-NEXT:    MOV M, B
+; CHECK-NEXT:    MOV L, C
+; CHECK-NEXT:    MOV H, B
+; CHECK-NEXT:    SHLD g16
 ; CHECK-NEXT:    RET
 entry:
   store i8 %a, i8* @g8, align 1
@@ -39,10 +38,9 @@ define i16 @load_globals() {
 ; CHECK-NEXT:    MOV A, M
 ; CHECK-NEXT:    MOV C, A
 ; CHECK-NEXT:    MVI B, 0
-; CHECK-NEXT:    LXI H, g16+1
-; CHECK-NEXT:    MOV D, M
-; CHECK-NEXT:    LXI H, g16
-; CHECK-NEXT:    MOV E, M
+; CHECK-NEXT:    LHLD g16
+; CHECK-NEXT:    MOV E, L
+; CHECK-NEXT:    MOV D, H
 ; CHECK-NEXT:    ADD E
 ; CHECK-NEXT:    MOV C, A
 ; CHECK-NEXT:    MOV A, B

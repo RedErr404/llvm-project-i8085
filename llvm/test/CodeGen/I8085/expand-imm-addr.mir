@@ -29,11 +29,11 @@ body:             |
 name:            load16_imm_bc
 body:             |
   bb.0:
+    ; The fixed-address 16-bit load uses LHLD, then moves HL to the BC dest.
     ; CHECK-LABEL: name:            load16_imm_bc
-    ; CHECK: $hl = LXI @g16{{.*}}1
-    ; CHECK-NEXT: $b = MOV_FROM_M
-    ; CHECK-NEXT: $hl = LXI @g16
-    ; CHECK-NEXT: $c = MOV_FROM_M
+    ; CHECK: LHLD @g16
+    ; CHECK-NEXT: $c = MOV $l
+    ; CHECK-NEXT: $b = MOV $h
     $bc = LOAD_16_WITH_IMM_ADDR @g16, implicit-def $hl, implicit-def $a, implicit $sp
     RET implicit $sp, implicit-def $sp
 ...
@@ -42,12 +42,10 @@ body:             |
 name:            load16_imm_hl
 body:             |
   bb.0:
+    ; HL destination is a single LHLD, no moves.
     ; CHECK-LABEL: name:            load16_imm_hl
-    ; CHECK: $hl = LXI @g16_2
-    ; CHECK-NEXT: $a = MOV_FROM_M
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $h = MOV_FROM_M
-    ; CHECK-NEXT: $l = MOV $a
+    ; CHECK: LHLD @g16_2
+    ; CHECK-NEXT: RET
     $hl = LOAD_16_WITH_IMM_ADDR @g16_2, implicit-def $hl, implicit-def $a, implicit $sp
     RET implicit $sp, implicit-def $sp
 ...
@@ -56,12 +54,9 @@ body:             |
 name:            load16_imm_sp
 body:             |
   bb.0:
+    ; SP destination: LHLD then SPHL.
     ; CHECK-LABEL: name:            load16_imm_sp
-    ; CHECK: $hl = LXI @g16_3
-    ; CHECK-NEXT: $a = MOV_FROM_M
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $h = MOV_FROM_M
-    ; CHECK-NEXT: $l = MOV $a
+    ; CHECK: LHLD @g16_3
     ; CHECK-NEXT: SPHL
     $sp = LOAD_16_WITH_IMM_ADDR @g16_3, implicit-def $hl, implicit-def $a, implicit $sp
     RET implicit $sp, implicit-def $sp

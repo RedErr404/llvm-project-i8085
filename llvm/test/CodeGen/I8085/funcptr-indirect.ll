@@ -42,11 +42,9 @@ entry:
 @gfptr = global i16 (i16)* null
 
 define i16 @test_global_funcptr(i16 %arg) {
+; The function pointer (16-bit global) is loaded with the direct LHLD.
 ; CHECK-LABEL: test_global_funcptr:
-; CHECK: LXI H, gfptr+1
-; CHECK: MOV B, M
-; CHECK: LXI H, gfptr
-; CHECK: MOV C, M
+; CHECK: LHLD gfptr
 ; CHECK: PUSH B
 ; CHECK: PCHL
 ; CHECK: RET

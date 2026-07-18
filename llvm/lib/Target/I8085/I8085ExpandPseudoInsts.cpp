@@ -872,43 +872,28 @@ bool I8085ExpandPseudo::expand<I8085::LOAD_16_WITH_IMM_ADDR>(Block &MBB, BlockIt
 
   const MachineOperand &AddrMO = MI.getOperand(1);
 
-  if (destReg == I8085::HL || destReg == I8085::SP) {
-    const bool PreservePSW = shouldPreservePSW(MBB, MBBI);
-    const bool CanClobberFlags =
-        !isPhysRegLive(MBB, MBBI, I8085::SREG);
-    if (PreservePSW)
-      pushPSW(MBB, MBBI, CanClobberFlags);
-    MachineInstrBuilder AddrLo = buildMI(MBB, MBBI, I8085::LXI)
-                                     .addReg(I8085::HL, RegState::Define);
-    addAddrOperand(AddrLo, AddrMO);
-    buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::A, RegState::Define);
-    buildMI(MBB, MBBI, I8085::INX).addReg(I8085::HL, RegState::Define);
-    buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::H, RegState::Define);
-    buildMI(MBB, MBBI, I8085::MOV)
-        .addReg(I8085::L, RegState::Define)
-        .addReg(I8085::A);
+  // LHLD loads 16 bits from a fixed address straight into HL in one 3-byte
+  // instruction (16 states, no flags affected) - far cheaper than the two
+  // LXI/MOV-M pairs the byte-wise path used. HL is in this pseudo's Defs so it
+  // may be clobbered freely; move the loaded value out to BC/DE (or SPHL) when
+  // that is the destination.
+  MachineInstrBuilder Ld = buildMI(MBB, MBBI, I8085::LHLD);
+  addAddrOperand(Ld, AddrMO);
 
-    if (PreservePSW)
-      buildMI(MBB, MBBI, I8085::POP).addReg(I8085::PSW, RegState::Define);
-    if (destReg == I8085::SP)
-      buildMI(MBB, MBBI, I8085::SPHL);
-
+  if (destReg == I8085::HL) {
+    MI.eraseFromParent();
+    return true;
+  }
+  if (destReg == I8085::SP) {
+    buildMI(MBB, MBBI, I8085::SPHL);
     MI.eraseFromParent();
     return true;
   }
 
   if (!getPairRegs(destReg, lowReg, highReg))
     return false;
-
-  MachineInstrBuilder AddrHi = buildMI(MBB, MBBI, I8085::LXI)
-                                   .addReg(I8085::HL, RegState::Define);
-  addAddrOperand(AddrHi, AddrMO, 1);
-  buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(highReg,RegState::Define);
-
-  MachineInstrBuilder AddrLo = buildMI(MBB, MBBI, I8085::LXI)
-                                   .addReg(I8085::HL, RegState::Define);
-  addAddrOperand(AddrLo, AddrMO);
-  buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(lowReg,RegState::Define);
+  buildMI(MBB, MBBI, I8085::MOV).addReg(lowReg, RegState::Define).addReg(I8085::L);
+  buildMI(MBB, MBBI, I8085::MOV).addReg(highReg, RegState::Define).addReg(I8085::H);
 
   MI.eraseFromParent();
 
@@ -936,17 +921,21 @@ bool I8085ExpandPseudo::expand<I8085::STORE_16_WITH_IMM_ADDR>(Block &MBB, BlockI
   MachineInstr &MI = *MBBI;
 
   unsigned srcReg = MI.getOperand(1).getReg();
-  unsigned srcLow, srcHigh;
-  if (!getPairRegs(srcReg, srcLow, srcHigh))
-    return false;
-
   const MachineOperand &AddrMO = MI.getOperand(0);
-  MachineInstrBuilder Addr = buildMI(MBB, MBBI, I8085::LXI)
-                                 .addReg(I8085::HL, RegState::Define);
-  addAddrOperand(Addr, AddrMO);
-  buildMI(MBB, MBBI, I8085::MOV_M).addReg(srcLow);
-  buildMI(MBB, MBBI, I8085::INX).addReg(I8085::HL, RegState::Define);
-  buildMI(MBB, MBBI, I8085::MOV_M).addReg(srcHigh);
+
+  // SHLD stores HL to a fixed address in one 3-byte instruction. HL is in this
+  // pseudo's Defs, so when the value is not already in HL we copy it there
+  // (without disturbing the BC/DE source, which may still be live) and store.
+  if (srcReg != I8085::HL) {
+    unsigned srcLow, srcHigh;
+    if (!getPairRegs(srcReg, srcLow, srcHigh))
+      return false;
+    buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::L, RegState::Define).addReg(srcLow);
+    buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::H, RegState::Define).addReg(srcHigh);
+  }
+
+  MachineInstrBuilder St = buildMI(MBB, MBBI, I8085::SHLD);
+  addAddrOperand(St, AddrMO);
 
   MI.eraseFromParent();
   return true;

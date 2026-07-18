@@ -9,18 +9,12 @@
 
 ; Load, modify, store a global
 define void @increment_global() {
+; The 16-bit global load/store use the direct LHLD/SHLD instructions.
 ; CHECK-LABEL: increment_global:
-; CHECK: LXI B, 1
-; CHECK: LXI H, counter+1
-; CHECK: MOV D, M
-; CHECK: LXI H, counter
-; CHECK: MOV E, M
+; CHECK: LHLD counter
 ; CHECK: ADD C
 ; CHECK: ADC B
-; CHECK: LXI H, counter
-; CHECK: MOV M, E
-; CHECK: INX H
-; CHECK: MOV M, D
+; CHECK: SHLD counter
 ; CHECK: RET
 entry:
   %val = load i16, i16* @counter
