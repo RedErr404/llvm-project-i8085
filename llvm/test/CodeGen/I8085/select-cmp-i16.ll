@@ -54,7 +54,7 @@ entry:
 define i8 @select_eq_i8(i8 %a, i8 %b, i8 %c, i8 %d) {
 ; CHECK-LABEL: select_eq_i8:
 ; CHECK: SUB
-; CHECK: JZ
+; CHECK: JNZ
 ; CHECK: LDAX B
 ; CHECK: RET
 entry:

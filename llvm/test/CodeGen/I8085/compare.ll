@@ -13,12 +13,9 @@ define i8 @cmp_eq_i8(i8 %a, i8 %b) {
 ; CHECK-NEXT:    DCX H
 ; CHECK-NEXT:    MOV A, M
 ; CHECK-NEXT:    SUB B
-; CHECK-NEXT:    JZ LBB0_1
-; CHECK-NEXT:  ; %bb.3:
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    RET
-; CHECK-NEXT:  LBB0_1:
-; CHECK-NEXT:    MVI A, 1
+; CHECK-NEXT:    SUI 1
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    ANI 1
 ; CHECK-NEXT:    RET
 
   %cmp = icmp eq i8 %a, %b
@@ -38,12 +35,8 @@ define i8 @cmp_ult_i8(i8 %a, i8 %b) {
 ; CHECK-NEXT:    DCX H
 ; CHECK-NEXT:    MOV A, M
 ; CHECK-NEXT:    SUB B
-; CHECK-NEXT:    JC LBB1_1
-; CHECK-NEXT:  ; %bb.3:
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    RET
-; CHECK-NEXT:  LBB1_1:
-; CHECK-NEXT:    MVI A, 1
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    ANI 1
 ; CHECK-NEXT:    RET
 
   %cmp = icmp ult i8 %a, %b

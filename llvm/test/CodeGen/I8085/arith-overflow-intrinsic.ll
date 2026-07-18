@@ -37,10 +37,8 @@ define i8 @uadd_overflow_i8(i8 %a, i8 %b, i8* %out) {
 ; CHECK: ADD C
 ; CHECK: STAX D
 ; CHECK: SUB
-; CHECK: JC
-; CHECK: MVI A, 0
-; CHECK: RET
-; CHECK: MVI A, 1
+; CHECK: SBB A
+; CHECK: ANI 1
 ; CHECK: RET
 entry:
   %x = call {i8, i1} @llvm.uadd.with.overflow.i8(i8 %a, i8 %b)

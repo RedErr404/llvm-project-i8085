@@ -190,19 +190,13 @@ define i8 @umin_i8(i8 %a, i8 %b) {
 ; CHECK-NEXT:    MOV B, M
 ; CHECK-NEXT:    MOV A, B
 ; CHECK-NEXT:    SUB C
-; CHECK-NEXT:    JC LBB4_1
-; CHECK-NEXT:  ; %bb.5: ; %entry
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    ANI 1
 ; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JZ LBB4_3
-; CHECK-NEXT:    JMP LBB4_4
-; CHECK-NEXT:  LBB4_1:
-; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JNZ LBB4_4
-; CHECK-NEXT:  LBB4_3: ; %entry
+; CHECK-NEXT:    JNZ LBB4_2
+; CHECK-NEXT:  ; %bb.1: ; %entry
 ; CHECK-NEXT:    MOV B, C
-; CHECK-NEXT:  LBB4_4: ; %entry
+; CHECK-NEXT:  LBB4_2: ; %entry
 ; CHECK-NEXT:    MOV A, B
 ; CHECK-NEXT:    RET
 entry:

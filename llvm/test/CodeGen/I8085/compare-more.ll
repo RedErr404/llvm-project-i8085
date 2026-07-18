@@ -9,31 +9,16 @@ define i8 @cmp_slt_i8(i8 %a, i8 %b) {
 ; CHECK-NEXT:  ; %bb.0:
 ; CHECK-NEXT:    LXI H, 3
 ; CHECK-NEXT:    DAD SP
-; CHECK-NEXT:    MOV B, M
+; CHECK-NEXT:    MOV A, M
 ; CHECK-NEXT:    DCX H
-; CHECK-NEXT:    MOV C, M
-; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    XRA B
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JZ LBB0_1
-; CHECK-NEXT:    JNZ LBB0_5
-; CHECK-NEXT:  LBB0_1:
-; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    SUB B
-; CHECK-NEXT:    JC LBB0_2
-; CHECK-NEXT:  ; %bb.4:
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    RET
-; CHECK-NEXT:  LBB0_5:
-; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JZ LBB0_6
-; CHECK-NEXT:    JNZ LBB0_2
-; CHECK-NEXT:  LBB0_6:
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    RET
-; CHECK-NEXT:  LBB0_2:
-; CHECK-NEXT:    MVI A, 1
+; CHECK-NEXT:    MOV B, M
+; CHECK-NEXT:    XRI 128
+; CHECK-NEXT:    MOV C, A
+; CHECK-NEXT:    MOV A, B
+; CHECK-NEXT:    XRI 128
+; CHECK-NEXT:    SUB C
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    ANI 1
 ; CHECK-NEXT:    RET
 
   %cmp = icmp slt i8 %a, %b
@@ -51,28 +36,14 @@ define i8 @cmp_sgt_i8(i8 %a, i8 %b) {
 ; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    MOV B, M
 ; CHECK-NEXT:    DCX H
-; CHECK-NEXT:    MOV C, M
-; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    XRA B
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JZ LBB1_1
-; CHECK-NEXT:    JNZ LBB1_3
-; CHECK-NEXT:  LBB1_1:
-; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    SUB B
-; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:    JZ LBB1_2
-; CHECK-NEXT:    RNC
-; CHECK-NEXT:  LBB1_2:
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    RET
-; CHECK-NEXT:  LBB1_3:
-; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JZ LBB1_4
-; CHECK-NEXT:    JNZ LBB1_2
-; CHECK-NEXT:  LBB1_4:
-; CHECK-NEXT:    MVI A, 1
+; CHECK-NEXT:    MOV A, M
+; CHECK-NEXT:    XRI 128
+; CHECK-NEXT:    MOV C, A
+; CHECK-NEXT:    MOV A, B
+; CHECK-NEXT:    XRI 128
+; CHECK-NEXT:    SUB C
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    ANI 1
 ; CHECK-NEXT:    RET
 
   %cmp = icmp sgt i8 %a, %b
@@ -169,12 +140,8 @@ define i8 @cmp_uge_i8(i8 %a, i8 %b) {
 ; CHECK-NEXT:    DCX H
 ; CHECK-NEXT:    MOV A, M
 ; CHECK-NEXT:    SUB B
-; CHECK-NEXT:    JNC LBB4_1
-; CHECK-NEXT:  ; %bb.3:
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    RET
-; CHECK-NEXT:  LBB4_1:
-; CHECK-NEXT:    MVI A, 1
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    INR A
 ; CHECK-NEXT:    RET
 
   %cmp = icmp uge i8 %a, %b
