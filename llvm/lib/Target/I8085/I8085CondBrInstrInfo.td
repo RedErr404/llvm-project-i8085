@@ -260,6 +260,24 @@ let isBranch = 1, isTerminator = 1, Defs=[SREG, A] in {
        (ins GR16Pair:$lhs, GR16Pair:$rhs, addressTarget:$k), "BR_CC_SGE_16 $lhs, $rhs, $k", []>;
 }
 
+// i16 compare against a constant. $rhs is the (possibly +1-adjusted) raw 16-bit
+// immediate; the custom inserter splits it into bytes and does SUI/SBI per byte
+// (magnitude), XRI combine (equality), or high-byte 0x80 bias (signed).
+let isBranch = 1, isTerminator = 1, Defs=[SREG, A] in {
+   def BR_CC_EQ_16_IMM  : I8085InserterPseudo<(outs),
+       (ins GR16Pair:$lhs, I8085Imm16:$rhs, addressTarget:$k), "BR_CC_EQ_16_IMM $lhs, $rhs, $k", []>;
+   def BR_CC_NE_16_IMM  : I8085InserterPseudo<(outs),
+       (ins GR16Pair:$lhs, I8085Imm16:$rhs, addressTarget:$k), "BR_CC_NE_16_IMM $lhs, $rhs, $k", []>;
+   def BR_CC_ULT_16_IMM : I8085InserterPseudo<(outs),
+       (ins GR16Pair:$lhs, I8085Imm16:$rhs, addressTarget:$k), "BR_CC_ULT_16_IMM $lhs, $rhs, $k", []>;
+   def BR_CC_UGE_16_IMM : I8085InserterPseudo<(outs),
+       (ins GR16Pair:$lhs, I8085Imm16:$rhs, addressTarget:$k), "BR_CC_UGE_16_IMM $lhs, $rhs, $k", []>;
+   def BR_CC_SLT_16_IMM : I8085InserterPseudo<(outs),
+       (ins GR16Pair:$lhs, I8085Imm16:$rhs, addressTarget:$k), "BR_CC_SLT_16_IMM $lhs, $rhs, $k", []>;
+   def BR_CC_SGE_16_IMM : I8085InserterPseudo<(outs),
+       (ins GR16Pair:$lhs, I8085Imm16:$rhs, addressTarget:$k), "BR_CC_SGE_16_IMM $lhs, $rhs, $k", []>;
+}
+
 let isBranch = 1, isTerminator = 1, Defs=[SREG, A] in {
    def JMP_8_IF : I8085Pseudo<(outs),(ins GR8NoHL: $reg, addressTarget:$k),
                                            "JMP_8_IF $reg, $k", []>;

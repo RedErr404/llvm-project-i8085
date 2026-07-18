@@ -117,61 +117,20 @@ define i16 @abs_i16(i16 %a) {
 ; CHECK-LABEL: abs_i16:
 ; CHECK:         .cfi_startproc
 ; CHECK-NEXT:  ; %bb.0: ; %entry
-; CHECK-NEXT:    LXI D, -1
 ; CHECK-NEXT:    LXI H, 2
 ; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    MOV C, M
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV B, M
 ; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    XRA D
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JNZ LBB2_8
-; CHECK-NEXT:  ; %bb.2: ; %entry
-; CHECK-NEXT:    MOV H, B
-; CHECK-NEXT:    MOV L, C
-; CHECK-NEXT:    MOV A, L
-; CHECK-NEXT:    SUB E
-; CHECK-NEXT:    MOV L, A
-; CHECK-NEXT:    MOV A, H
-; CHECK-NEXT:    SBB D
-; CHECK-NEXT:    MOV H, A
-; CHECK-NEXT:    JNC LBB2_4
-; CHECK-NEXT:  LBB2_3: ; %entry
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    RNZ
-; CHECK-NEXT:    JMP LBB2_11
-; CHECK-NEXT:  LBB2_8: ; %entry
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JNZ LBB2_10
-; CHECK-NEXT:  ; %bb.9: ; %entry
-; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    RNZ
-; CHECK-NEXT:    JMP LBB2_11
-; CHECK-NEXT:  LBB2_4: ; %entry
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    CMP D
-; CHECK-NEXT:    JNZ LBB2_7
-; CHECK-NEXT:  ; %bb.5: ; %entry
+; CHECK-NEXT:    XRI 128
+; CHECK-NEXT:    MOV D, A
 ; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    CMP E
-; CHECK-NEXT:    JNZ LBB2_7
-; CHECK-NEXT:  ; %bb.6: ; %entry
-; CHECK-NEXT:    JMP LBB2_3
-; CHECK-NEXT:  LBB2_10: ; %entry
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    RNZ
-; CHECK-NEXT:    JMP LBB2_11
-; CHECK-NEXT:  LBB2_7: ; %entry
-; CHECK-NEXT:  ; %bb.1: ; %entry
-; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    RNZ
-; CHECK-NEXT:  LBB2_11: ; %select.true.sink
+; CHECK-NEXT:    SUI 0
+; CHECK-NEXT:    MOV A, D
+; CHECK-NEXT:    SBI 128
+; CHECK-NEXT:    RNC
+; CHECK-NEXT:  LBB2_1: ; %select.true.sink
 ; CHECK-NEXT:    LXI D, 0
 ; CHECK-NEXT:    MOV A, E
 ; CHECK-NEXT:    SUB C
@@ -179,7 +138,7 @@ define i16 @abs_i16(i16 %a) {
 ; CHECK-NEXT:    MOV A, D
 ; CHECK-NEXT:    SBB B
 ; CHECK-NEXT:    MOV B, A
-; CHECK-NEXT:  ; %bb.12: ; %select.end
+; CHECK-NEXT:  ; %bb.2: ; %select.end
 ; CHECK-NEXT:    RET
 entry:
   %cmp = icmp slt i16 %a, 0

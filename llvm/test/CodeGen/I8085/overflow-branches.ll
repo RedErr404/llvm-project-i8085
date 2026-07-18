@@ -94,46 +94,18 @@ define i8 @br_sadd_ov(i16 %a, i16 %b) {
 ; CHECK-NEXT:    MOV A, B
 ; CHECK-NEXT:    ANA D
 ; CHECK-NEXT:    MOV B, A
-; CHECK-NEXT:    LXI D, -1
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    XRA D
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JNZ LBB1_4
-; CHECK-NEXT:  ; %bb.1: ; %entry
-; CHECK-NEXT:    MOV H, B
-; CHECK-NEXT:    MOV L, C
-; CHECK-NEXT:    MOV A, L
-; CHECK-NEXT:    SUB E
-; CHECK-NEXT:    MOV L, A
-; CHECK-NEXT:    MOV A, H
-; CHECK-NEXT:    SBB D
-; CHECK-NEXT:    MOV H, A
-; CHECK-NEXT:    JC LBB1_2
-; CHECK-NEXT:  ; %bb.6: ; %entry
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    CMP D
-; CHECK-NEXT:    JNZ LBB1_12
-; CHECK-NEXT:  ; %bb.7: ; %entry
+; CHECK-NEXT:    XRI 128
+; CHECK-NEXT:    MOV D, A
 ; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    CMP E
-; CHECK-NEXT:    JZ LBB1_2
-; CHECK-NEXT:  LBB1_12: ; %entry
+; CHECK-NEXT:    SUI 0
+; CHECK-NEXT:    MOV A, D
+; CHECK-NEXT:    SBI 128
+; CHECK-NEXT:    JNC LBB1_2
+; CHECK-NEXT:  ; %bb.1: ; %t
 ; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JZ LBB1_3
-; CHECK-NEXT:  LBB1_10: ; %f
-; CHECK-NEXT:    MVI A, 0
 ; CHECK-NEXT:    RET
-; CHECK-NEXT:  LBB1_4: ; %entry
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JZ LBB1_12
-; CHECK-NEXT:  LBB1_2: ; %entry
+; CHECK-NEXT:  LBB1_2: ; %f
 ; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JNZ LBB1_10
-; CHECK-NEXT:  LBB1_3: ; %t
-; CHECK-NEXT:    MVI A, 1
 ; CHECK-NEXT:    RET
 entry:
   %res = call { i16, i1 } @llvm.sadd.with.overflow.i16(i16 %a, i16 %b)

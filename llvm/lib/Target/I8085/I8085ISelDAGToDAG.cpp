@@ -414,10 +414,69 @@ template <> bool I8085DAGToDAGISel::select<ISD::BR_CC>(SDNode *N) {
     }
   }
 
+  // Fused compare-against-constant-and-branch for i16. Byte-level SUI/SBI, XRI
+  // combine, or high-byte bias against the immediate - no diamond, no register
+  // materialization of the constant.
+  //
+  // The i16 fused inserters extract operand bytes with subreg COPYs, which the
+  // fast register allocator (-O0) mishandles for a value carried across a loop
+  // back-edge ("reading vreg without def"). The greedy allocator (-O1+) is
+  // fine, so gate i16 fusion off at -O0 and let it use the diamond there.
+  if (LHS.getSimpleValueType() == MVT::i16 &&
+      OptLevel != CodeGenOptLevel::None) {
+    ConstantSDNode *RHSC = dyn_cast<ConstantSDNode>(RHS);
+    if (!RHSC) {
+      if (auto *LHSC = dyn_cast<ConstantSDNode>(LHS)) {
+        CC = ISD::getSetCCSwappedOperands(CC);
+        std::swap(LHS, RHS);
+        RHSC = LHSC;
+      }
+    }
+    if (RHSC) {
+      unsigned FusedOpc = 0;
+      uint64_t Imm = RHSC->getZExtValue() & 0xFFFF;
+      switch (CC) {
+      case ISD::SETEQ:  FusedOpc = I8085::BR_CC_EQ_16_IMM; break;
+      case ISD::SETNE:  FusedOpc = I8085::BR_CC_NE_16_IMM; break;
+      case ISD::SETULT: FusedOpc = I8085::BR_CC_ULT_16_IMM; break;
+      case ISD::SETUGE: FusedOpc = I8085::BR_CC_UGE_16_IMM; break;
+      case ISD::SETUGT:
+        if (Imm != 0xFFFF) { FusedOpc = I8085::BR_CC_UGE_16_IMM; Imm++; }
+        break;
+      case ISD::SETULE:
+        if (Imm != 0xFFFF) { FusedOpc = I8085::BR_CC_ULT_16_IMM; Imm++; }
+        break;
+      case ISD::SETLT:  FusedOpc = I8085::BR_CC_SLT_16_IMM; break;
+      case ISD::SETGE:  FusedOpc = I8085::BR_CC_SGE_16_IMM; break;
+      case ISD::SETGT:
+        if ((int16_t)Imm != 32767) {
+          FusedOpc = I8085::BR_CC_SGE_16_IMM; Imm = (Imm + 1) & 0xFFFF;
+        }
+        break;
+      case ISD::SETLE:
+        if ((int16_t)Imm != 32767) {
+          FusedOpc = I8085::BR_CC_SLT_16_IMM; Imm = (Imm + 1) & 0xFFFF;
+        }
+        break;
+      default: break;
+      }
+      if (FusedOpc) {
+        SDValue ImmOp = CurDAG->getTargetConstant(Imm, dl, MVT::i16);
+        SDValue Ops[] = {LHS, ImmOp, JumpTo, Chain};
+        SDNode *Res = CurDAG->getMachineNode(FusedOpc, dl, MVT::Other, Ops);
+        ReplaceUses(SDValue(N, 0), SDValue(Res, 0));
+        CurDAG->RemoveDeadNode(N);
+        return true;
+      }
+    }
+  }
+
   // Fused compare-register-and-branch for i16 (all condition codes). Bypasses
   // the SET_*_16 boolean diamond + JMP_8_IF re-test. Register operands only; a
   // constant operand falls through to the diamond, which materializes it.
+  // (Gated off at -O0, see the i16-immediate note above.)
   if (LHS.getSimpleValueType() == MVT::i16 &&
+      OptLevel != CodeGenOptLevel::None &&
       !isa<ConstantSDNode>(LHS) && !isa<ConstantSDNode>(RHS)) {
     unsigned FusedOpc = 0;
     switch (CC) {

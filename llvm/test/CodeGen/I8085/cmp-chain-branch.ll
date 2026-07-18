@@ -9,78 +9,33 @@ define i8 @cmp_chain_and_i16(i16 %a) {
 ; CHECK-LABEL: cmp_chain_and_i16:
 ; CHECK:         .cfi_startproc
 ; CHECK-NEXT:  ; %bb.0: ; %entry
-; CHECK-NEXT:    LXI D, 6
 ; CHECK-NEXT:    LXI H, 2
 ; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    MOV C, M
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV B, M
 ; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    XRA D
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JNZ LBB0_3
-; CHECK-NEXT:  ; %bb.1: ; %entry
-; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    SUB E
-; CHECK-NEXT:    MOV E, A
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    SBB D
+; CHECK-NEXT:    XRI 128
 ; CHECK-NEXT:    MOV D, A
-; CHECK-NEXT:    JC LBB0_6
-; CHECK-NEXT:  LBB0_5: ; %entry
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JZ LBB0_7
-; CHECK-NEXT:    JMP LBB0_17
-; CHECK-NEXT:  LBB0_3: ; %entry
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JZ LBB0_5
-; CHECK-NEXT:  LBB0_6: ; %entry
-; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JNZ LBB0_17
-; CHECK-NEXT:  LBB0_7: ; %entry
-; CHECK-NEXT:    LXI D, 99
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    XRA D
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JNZ LBB0_11
-; CHECK-NEXT:  ; %bb.8: ; %entry
-; CHECK-NEXT:    MOV H, B
-; CHECK-NEXT:    MOV L, C
-; CHECK-NEXT:    MOV A, L
-; CHECK-NEXT:    SUB E
-; CHECK-NEXT:    MOV L, A
-; CHECK-NEXT:    MOV A, H
-; CHECK-NEXT:    SBB D
-; CHECK-NEXT:    MOV H, A
-; CHECK-NEXT:    JC LBB0_9
-; CHECK-NEXT:  ; %bb.13: ; %entry
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    CMP D
-; CHECK-NEXT:    JNZ LBB0_19
-; CHECK-NEXT:  ; %bb.14: ; %entry
 ; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    CMP E
-; CHECK-NEXT:    JZ LBB0_9
-; CHECK-NEXT:  LBB0_19: ; %entry
-; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JZ LBB0_10
-; CHECK-NEXT:  LBB0_17: ; %f
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    RET
-; CHECK-NEXT:  LBB0_11: ; %entry
+; CHECK-NEXT:    SUI 6
+; CHECK-NEXT:    MOV A, D
+; CHECK-NEXT:    SBI 128
+; CHECK-NEXT:    JC LBB0_3
+; CHECK-NEXT:  ; %bb.1: ; %entry
 ; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JZ LBB0_19
-; CHECK-NEXT:  LBB0_9: ; %entry
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JNZ LBB0_17
-; CHECK-NEXT:  LBB0_10: ; %t
+; CHECK-NEXT:    XRI 128
+; CHECK-NEXT:    MOV D, A
+; CHECK-NEXT:    MOV A, C
+; CHECK-NEXT:    SUI 100
+; CHECK-NEXT:    MOV A, D
+; CHECK-NEXT:    SBI 128
+; CHECK-NEXT:    JNC LBB0_3
+; CHECK-NEXT:  ; %bb.2: ; %t
 ; CHECK-NEXT:    MVI A, 1
+; CHECK-NEXT:    RET
+; CHECK-NEXT:  LBB0_3: ; %f
+; CHECK-NEXT:    MVI A, 0
 ; CHECK-NEXT:    RET
 entry:
   %cmp1 = icmp sgt i16 %a, 5

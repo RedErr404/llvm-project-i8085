@@ -7,7 +7,7 @@
 define i16 @counted_loop_sum(i16 %n) {
 ; CHECK-LABEL: counted_loop_sum:
 ; CHECK: DAD SP
-; CHECK: SUB
+; CHECK: SUI
 ; CHECK: JNZ
 ; CHECK: RET
 entry:
@@ -32,7 +32,7 @@ define i16 @dowhile_countdown(i16 %start) {
 ; CHECK-LABEL: dowhile_countdown:
 ; CHECK: ADD
 ; CHECK: ADC
-; CHECK: CMP
+; CHECK: ORA
 ; CHECK: JNZ
 ; CHECK: RET
 entry:

@@ -4103,6 +4103,13 @@ MachineBasicBlock *I8085TargetLowering::EmitInstrWithCustomInserter(MachineInstr
   case I8085::BR_CC_SLT_16:
   case I8085::BR_CC_SGE_16:
     return insertBrCC16(MI, MBB);
+  case I8085::BR_CC_EQ_16_IMM:
+  case I8085::BR_CC_NE_16_IMM:
+  case I8085::BR_CC_ULT_16_IMM:
+  case I8085::BR_CC_UGE_16_IMM:
+  case I8085::BR_CC_SLT_16_IMM:
+  case I8085::BR_CC_SGE_16_IMM:
+    return insertBrCC16Imm(MI, MBB);
   case I8085::SET_GT_8:
   case I8085::SET_LT_8:
   case I8085::SET_GE_8:
