@@ -201,6 +201,12 @@ let isBranch = 1, isTerminator = 1, Defs=[SREG, A] in {
    def BR_CC_SGE_8_IMM : I8085Pseudo<(outs),
        (ins GR8:$lhs, I8085Imm8:$rhs, addressTarget:$k),
        "BR_CC_SGE_8_IMM $lhs, $rhs, $k", []>;
+   // Sign test (compare against 0): MOV A,lhs ; ORA A ; JM/JP. ORA A sets S
+   // from bit 7, so a<0 -> JM (minus), a>=0 -> JP (plus).
+   def BR_CC_MINUS_8 : I8085Pseudo<(outs),
+       (ins GR8:$lhs, addressTarget:$k), "BR_CC_MINUS_8 $lhs, $k", []>;
+   def BR_CC_PLUS_8 : I8085Pseudo<(outs),
+       (ins GR8:$lhs, addressTarget:$k), "BR_CC_PLUS_8 $lhs, $k", []>;
 }
 
 // Fused compare-register-and-branch pseudos for i8 (register RHS).

@@ -352,19 +352,28 @@ template <> bool I8085DAGToDAGISel::select<ISD::BR_CC>(SDNode *N) {
       case ISD::SETULE:
         if (Imm < 255) { FusedOpc = I8085::BR_CC_ULT_8_IMM; Imm++; }
         break;
-      // Signed: use the biased immediate (k ^ 0x80) so the expansion is a
-      // single XRI 0x80 + CPI. a > k == a >= k+1 and a <= k == a < k+1, valid
-      // unless k is already the max signed value 127 (then the compare is
-      // constant, so leave it to the diamond / constant folding).
-      case ISD::SETLT: FusedOpc = I8085::BR_CC_SLT_8_IMM; Imm ^= 0x80; break;
-      case ISD::SETGE: FusedOpc = I8085::BR_CC_SGE_8_IMM; Imm ^= 0x80; break;
+      // Sign test against 0 is a pure S-flag branch (ORA A ; JM/JP), cheaper
+      // than the bias sequence.
+      case ISD::SETLT:
+        if (Imm == 0) FusedOpc = I8085::BR_CC_MINUS_8;
+        else { FusedOpc = I8085::BR_CC_SLT_8_IMM; Imm ^= 0x80; }
+        break;
+      case ISD::SETGE:
+        if (Imm == 0) FusedOpc = I8085::BR_CC_PLUS_8;
+        else { FusedOpc = I8085::BR_CC_SGE_8_IMM; Imm ^= 0x80; }
+        break;
       case ISD::SETGT:
-        if ((int8_t)Imm != 127) {
+        // a > -1 == a >= 0 is a sign test (LLVM often canonicalizes `a >= 0`
+        // to this form for i8).
+        if (Imm == 0xFF) FusedOpc = I8085::BR_CC_PLUS_8;
+        else if ((int8_t)Imm != 127) {
           FusedOpc = I8085::BR_CC_SGE_8_IMM; Imm = ((Imm + 1) & 0xFF) ^ 0x80;
         }
         break;
       case ISD::SETLE:
-        if ((int8_t)Imm != 127) {
+        // a <= -1 == a < 0 is a sign test (canonical form of i8 `a < 0`).
+        if (Imm == 0xFF) FusedOpc = I8085::BR_CC_MINUS_8;
+        else if ((int8_t)Imm != 127) {
           FusedOpc = I8085::BR_CC_SLT_8_IMM; Imm = ((Imm + 1) & 0xFF) ^ 0x80;
         }
         break;
@@ -372,9 +381,17 @@ template <> bool I8085DAGToDAGISel::select<ISD::BR_CC>(SDNode *N) {
       }
 
       if (FusedOpc) {
-        SDValue ImmOp = CurDAG->getTargetConstant(Imm, dl, MVT::i8);
-        SDValue Ops[] = {LHS, ImmOp, JumpTo, Chain};
-        SDNode *Res = CurDAG->getMachineNode(FusedOpc, dl, MVT::Other, Ops);
+        bool IsSignTest = (FusedOpc == I8085::BR_CC_MINUS_8 ||
+                           FusedOpc == I8085::BR_CC_PLUS_8);
+        SDNode *Res;
+        if (IsSignTest) {
+          SDValue Ops[] = {LHS, JumpTo, Chain};
+          Res = CurDAG->getMachineNode(FusedOpc, dl, MVT::Other, Ops);
+        } else {
+          SDValue ImmOp = CurDAG->getTargetConstant(Imm, dl, MVT::i8);
+          SDValue Ops[] = {LHS, ImmOp, JumpTo, Chain};
+          Res = CurDAG->getMachineNode(FusedOpc, dl, MVT::Other, Ops);
+        }
         ReplaceUses(SDValue(N, 0), SDValue(Res, 0));
         CurDAG->RemoveDeadNode(N);
         return true;

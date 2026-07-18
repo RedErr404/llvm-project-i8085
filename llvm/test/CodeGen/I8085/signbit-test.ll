@@ -31,8 +31,7 @@ entry:
 ; Branch on sign bit of i16
 define i16 @branch_on_sign(i16 %x) {
 ; CHECK-LABEL: branch_on_sign:
-; CHECK: XRI 128
-; CHECK: SBI
+; CHECK: ORA A
 ; CHECK: RET
 entry:
   %cmp = icmp slt i16 %x, 0

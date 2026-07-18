@@ -94,13 +94,8 @@ define i8 @br_sadd_ov(i16 %a, i16 %b) {
 ; CHECK-NEXT:    MOV A, B
 ; CHECK-NEXT:    ANA D
 ; CHECK-NEXT:    MOV B, A
-; CHECK-NEXT:    XRI 128
-; CHECK-NEXT:    MOV D, A
-; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    SUI 0
-; CHECK-NEXT:    MOV A, D
-; CHECK-NEXT:    SBI 128
-; CHECK-NEXT:    JNC LBB1_2
+; CHECK-NEXT:    ORA A
+; CHECK-NEXT:    JP LBB1_2
 ; CHECK-NEXT:  ; %bb.1: ; %t
 ; CHECK-NEXT:    MVI A, 1
 ; CHECK-NEXT:    RET

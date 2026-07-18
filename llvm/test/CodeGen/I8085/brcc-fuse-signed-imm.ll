@@ -8,11 +8,11 @@
 declare void @sink()
 
 ; if ((int8)a < 0) -- the ubiquitous sign test
+; a < 0 / a >= 0 are pure sign tests (ORA A ; JM/JP), see brcc-signtest.ll.
 define void @slt0(i8 %a) {
 ; CHECK-LABEL: slt0:
-; CHECK:       XRI 128
-; CHECK:       CPI
-; CHECK-NOT:   ORA A
+; CHECK:       ORA A
+; CHECK-NOT:   XRI
 entry:
   %c = icmp slt i8 %a, 0
   br i1 %c, label %t, label %f
@@ -26,9 +26,8 @@ f:
 ; if ((int8)a >= 0)
 define void @sge0(i8 %a) {
 ; CHECK-LABEL: sge0:
-; CHECK:       XRI 128
-; CHECK:       CPI
-; CHECK-NOT:   ORA A
+; CHECK:       ORA A
+; CHECK-NOT:   XRI
 entry:
   %c = icmp sge i8 %a, 0
   br i1 %c, label %t, label %f

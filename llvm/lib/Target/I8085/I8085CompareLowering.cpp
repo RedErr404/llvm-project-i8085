@@ -351,6 +351,13 @@ MachineBasicBlock *I8085TargetLowering::insertBrCC16Imm(MachineInstr &MI,
   }
   case I8085::BR_CC_SLT_16_IMM:
   case I8085::BR_CC_SGE_16_IMM: {
+    if (Imm == 0) {
+      // Sign test against 0: only the high byte's top bit matters.
+      MovA(hi);
+      BuildMI(*MBB, It, dl, TII.get(I8085::ORA)).addReg(I8085::A);
+      Jmp(Opc == I8085::BR_CC_SLT_16_IMM ? I8085::JM : I8085::JP);
+      break;
+    }
     MovA(hi); ImmOp(I8085::XRI, 0x80);           // biased operand high byte
     unsigned tb = Save();
     MovA(lo); ImmOp(I8085::SUI, ImmLo);          // CY = low borrow

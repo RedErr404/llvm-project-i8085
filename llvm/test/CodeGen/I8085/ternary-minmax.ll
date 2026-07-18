@@ -123,13 +123,8 @@ define i16 @abs_i16(i16 %a) {
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV B, M
 ; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    XRI 128
-; CHECK-NEXT:    MOV D, A
-; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    SUI 0
-; CHECK-NEXT:    MOV A, D
-; CHECK-NEXT:    SBI 128
-; CHECK-NEXT:    RNC
+; CHECK-NEXT:    ORA A
+; CHECK-NEXT:    RP
 ; CHECK-NEXT:  LBB2_1: ; %select.true.sink
 ; CHECK-NEXT:    LXI D, 0
 ; CHECK-NEXT:    MOV A, E

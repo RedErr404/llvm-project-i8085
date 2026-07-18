@@ -35,11 +35,11 @@ f:
   ret void
 }
 
+; a < 0 (i16) is a sign test on the high byte (ORA A ; JM/JP).
 define void @wslt0_c(i16 %a) {
 ; CHECK-LABEL: wslt0_c:
-; CHECK:       XRI 128
-; CHECK:       SBI
-; CHECK-NOT:   ORA A
+; CHECK:       ORA A
+; CHECK-NOT:   SBI
 entry:
   %c = icmp slt i16 %a, 0
   br i1 %c, label %t, label %f

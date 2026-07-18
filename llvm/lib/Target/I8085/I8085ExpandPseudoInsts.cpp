@@ -2192,6 +2192,33 @@ template <> bool I8085ExpandPseudo::expand<I8085::BR_CC_SGE_8_IMM>(Block &MBB, B
   return expandBrCCSignedImm(MBB, MBBI, I8085::JNC, TII);
 }
 
+// Sign test against 0: MOV A,LHS ; ORA A ; JM (a<0) / JP (a>=0).
+static bool expandBrCCSignTest(MachineBasicBlock &MBB,
+                               MachineBasicBlock::iterator MBBI,
+                               unsigned JmpOpc,
+                               const TargetInstrInfo *TII) {
+  MachineInstr &MI = *MBBI;
+  unsigned LHS = MI.getOperand(0).getReg();
+  DebugLoc DL = MI.getDebugLoc();
+
+  BuildMI(MBB, MBBI, DL, TII->get(I8085::MOV))
+    .addReg(I8085::A, RegState::Define)
+    .addReg(LHS);
+  BuildMI(MBB, MBBI, DL, TII->get(I8085::ORA)).addReg(I8085::A);
+  BuildMI(MBB, MBBI, DL, TII->get(JmpOpc)).add(MI.getOperand(1));
+
+  MI.eraseFromParent();
+  return true;
+}
+
+template <> bool I8085ExpandPseudo::expand<I8085::BR_CC_MINUS_8>(Block &MBB, BlockIt MBBI) {
+  return expandBrCCSignTest(MBB, MBBI, I8085::JM, TII);
+}
+
+template <> bool I8085ExpandPseudo::expand<I8085::BR_CC_PLUS_8>(Block &MBB, BlockIt MBBI) {
+  return expandBrCCSignTest(MBB, MBBI, I8085::JP, TII);
+}
+
 // Fused compare-register-and-branch expansions.
 // Each emits: MOV A, LHS ; SUB RHS ; Jcc target. After MOV A,LHS the accumulator
 // holds LHS, and SUB RHS sets Z = (LHS == RHS) and CY = (LHS < RHS unsigned).
@@ -3305,6 +3332,8 @@ bool I8085ExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
     EXPAND(I8085::BR_CC_UGE_8_IMM);
     EXPAND(I8085::BR_CC_SLT_8_IMM);
     EXPAND(I8085::BR_CC_SGE_8_IMM);
+    EXPAND(I8085::BR_CC_MINUS_8);
+    EXPAND(I8085::BR_CC_PLUS_8);
     EXPAND(I8085::BR_CC_EQ_8);
     EXPAND(I8085::BR_CC_NE_8);
     EXPAND(I8085::BR_CC_ULT_8);
