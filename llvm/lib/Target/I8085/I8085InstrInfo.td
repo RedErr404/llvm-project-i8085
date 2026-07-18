@@ -450,6 +450,15 @@ def LXI : F4<0b0001,(outs GR16: $rd), (ins I8085Imm16: $k), "LXI $rd, $k", []>;
 def INX : F8<0b0011,(outs GR16: $rd), (ins), "INX $rd", []>;
 def DCX : F8<0b1011,(outs GR16: $rd), (ins), "DCX $rd", []>;
 
+// 16-bit +/-1 as a single INX/DCX (1 byte, no flags) instead of the byte-wise
+// ADD_16/SUB_16 sequence. The value stays in its own pair (any of BC/DE/HL/SP),
+// so no register shuffling is needed. INX/DCX affect no flags, matching the
+// add/sub DAG node which produces only the value.
+let Constraints = "$src = $rd" in {
+  def INC16 : I8085Pseudo<(outs GR16: $rd), (ins GR16: $src), "INC16\t$rd", []>;
+  def DEC16 : I8085Pseudo<(outs GR16: $rd), (ins GR16: $src), "DEC16\t$rd", []>;
+}
+
 let Uses=[A] in def STAX : F8<0b0010,(outs), (ins GR16BD: $rd), "STAX $rd", []>;
 let Defs=[A] in def LDAX : F8<0b1010,(outs), (ins GR16BD: $rd), "LDAX $rd", []>;
 
@@ -660,6 +669,14 @@ def IsNeg16 : ImmLeaf<i16, [{
 def : Pat<(add i8: $src1, (IsNeg8 :$src2)),
           (SUBI_8 i8: $src1, (imm8_Neg_Form imm: $src2))>;
 def : Pat<(add i16: $src1, (IsNeg16 :$src2)),(SUB_16 i16: $src1, (LOAD_16 (imm16_Neg_Form imm: $src2)))>;
+
+// +/-1 map to single-byte INX/DCX (more specific than the general imm and
+// IsNeg16 patterns above, so give them higher complexity to win selection).
+let AddedComplexity = 20 in {
+  def : Pat<(add i16: $src, 1),  (INC16 i16: $src)>;
+  def : Pat<(add i16: $src, -1), (DEC16 i16: $src)>;
+  def : Pat<(sub i16: $src, 1),  (DEC16 i16: $src)>;
+}
 
 def : Pat<(add i8: $src1, (imm :$src2)),(ADD_8 i8: $src1, (MVI imm: $src2))>;
 def : Pat<(add i16: $src1, (imm :$src2)),(ADD_16 i16: $src1, (LOAD_16 imm: $src2))>;

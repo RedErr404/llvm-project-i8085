@@ -1890,6 +1890,28 @@ bool I8085ExpandPseudo::expand<I8085::SUBI_8>(Block &MBB, BlockIt MBBI) {
 }
 
 template <>
+bool I8085ExpandPseudo::expand<I8085::INC16>(Block &MBB, BlockIt MBBI) {
+  MachineInstr &MI = *MBBI;
+  unsigned rd = MI.getOperand(0).getReg(); // tied to $src, holds the value
+  buildMI(MBB, MBBI, I8085::INX)
+      .addReg(rd, RegState::Define)
+      .addReg(rd, RegState::Implicit);
+  MI.eraseFromParent();
+  return true;
+}
+
+template <>
+bool I8085ExpandPseudo::expand<I8085::DEC16>(Block &MBB, BlockIt MBBI) {
+  MachineInstr &MI = *MBBI;
+  unsigned rd = MI.getOperand(0).getReg();
+  buildMI(MBB, MBBI, I8085::DCX)
+      .addReg(rd, RegState::Define)
+      .addReg(rd, RegState::Implicit);
+  MI.eraseFromParent();
+  return true;
+}
+
+template <>
 bool I8085ExpandPseudo::expand<I8085::ADD_16>(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
 
@@ -3378,6 +3400,8 @@ bool I8085ExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
     EXPAND(I8085::ANDI_8);
     EXPAND(I8085::SUB_16);
     EXPAND(I8085::ADD_16);
+    EXPAND(I8085::INC16);
+    EXPAND(I8085::DEC16);
     EXPAND(I8085::SUB_8);
     EXPAND(I8085::SUBI_8);
     EXPAND(I8085::ADD_8);
