@@ -14,7 +14,6 @@ define i16 @select_const_one_zero(i1 %cond) {
 ; CHECK-NEXT:    MOV C, A
 ; CHECK-NEXT:    MVI B, 0
 ; CHECK-NEXT:    LXI D, 1
-; CHECK-NEXT:    MOV A, C
 ; CHECK-NEXT:    ANA E
 ; CHECK-NEXT:    MOV C, A
 ; CHECK-NEXT:    MOV A, B
@@ -38,7 +37,6 @@ define i16 @select_const_one_away(i1 %cond) {
 ; CHECK-NEXT:    MOV H, A
 ; CHECK-NEXT:    LXI D, 4
 ; CHECK-NEXT:    LXI B, 3
-; CHECK-NEXT:    MOV A, H
 ; CHECK-NEXT:    ORA A
 ; CHECK-NEXT:    RNZ
 ; CHECK-NEXT:  LBB1_1: ; %entry
@@ -63,7 +61,6 @@ define i16 @select_const_arbitrary(i1 %cond) {
 ; CHECK-NEXT:    MOV H, A
 ; CHECK-NEXT:    LXI D, 1000
 ; CHECK-NEXT:    LXI B, 42
-; CHECK-NEXT:    MOV A, H
 ; CHECK-NEXT:    ORA A
 ; CHECK-NEXT:    RNZ
 ; CHECK-NEXT:  LBB2_1: ; %entry
@@ -111,7 +108,6 @@ define i16 @select_const_zero_nonzero(i1 %cond) {
 ; CHECK-NEXT:    MOV H, A
 ; CHECK-NEXT:    LXI D, 255
 ; CHECK-NEXT:    LXI B, 0
-; CHECK-NEXT:    MOV A, H
 ; CHECK-NEXT:    ORA A
 ; CHECK-NEXT:    RNZ
 ; CHECK-NEXT:  LBB4_1: ; %entry

@@ -15,7 +15,6 @@ define i16 @zext_i1_to_i16(i1 %a) {
 ; CHECK-NEXT:    MOV C, A
 ; CHECK-NEXT:    MVI B, 0
 ; CHECK-NEXT:    LXI D, 1
-; CHECK-NEXT:    MOV A, C
 ; CHECK-NEXT:    ANA E
 ; CHECK-NEXT:    MOV C, A
 ; CHECK-NEXT:    MOV A, B

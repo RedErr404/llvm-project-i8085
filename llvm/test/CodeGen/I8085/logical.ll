@@ -44,7 +44,6 @@ define i16 @functiontwo(i16,i16) {
 ; CHECK-NEXT:    MOV L, A
 ; CHECK-NEXT:    MOV B, H
 ; CHECK-NEXT:    MOV C, L
-; CHECK-NEXT:    MOV A, C
 ; CHECK-NEXT:    XRA E
 ; CHECK-NEXT:    MOV C, A
 ; CHECK-NEXT:    MOV A, B

@@ -155,7 +155,6 @@ define i8 @add_sub_4(i8,i8) {
 ; CHECK-NEXT:    LXI H, 0
 ; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    MOV M, B
-; CHECK-NEXT:    MOV A, B
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    SPHL

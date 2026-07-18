@@ -17,7 +17,6 @@ define i8 @switch_many(i8 %x) {
 ; CHECK-NEXT:    MOV A, B
 ; CHECK-NEXT:    MOV C, A
 ; CHECK-NEXT:    MVI B, 0
-; CHECK-NEXT:    MOV A, C
 ; CHECK-NEXT:    ADD C
 ; CHECK-NEXT:    MOV C, A
 ; CHECK-NEXT:    MOV A, B

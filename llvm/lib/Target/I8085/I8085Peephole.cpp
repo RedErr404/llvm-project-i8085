@@ -74,6 +74,7 @@ public:
   bool runOnMachineFunction(MachineFunction &MF) override {
     bool Changed = false;
     MachineRegisterInfo &MRI = MF.getRegInfo();
+    const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
 
     for (MachineBasicBlock &MBB : MF) {
       for (auto MI = MBB.begin(); MI != MBB.end();) {
@@ -382,8 +383,79 @@ public:
         ++MI;
         continue;
       }
+
+      Changed |= eliminateRedundantMoves(MBB, TRI);
     }
 
+    return Changed;
+  }
+
+  // Post-expansion redundant-copy elimination. Pseudo expansion (LOAD_16 and
+  // friends) leaves behind MOV round-trips such as
+  //   MOV B,H ; MOV C,L ; MOV H,B ; MOV L,C
+  // (a register pair copied out to another pair and straight back). The normal
+  // MachineCopyPropagation runs before this target's pseudo expansion and never
+  // sees them. Forward-scan each block giving the seven 8-bit leaf registers a
+  // symbolic value id; a `MOV dst,src` whose dst already holds src's value is a
+  // no-op and is erased (MOV touches no flags, so this is always safe). Any
+  // other def - a 16-bit def like LXI H / INX H / DAD, an ALU def of A, or a
+  // load `MOV r,M` - invalidates every overlapping leaf.
+  bool eliminateRedundantMoves(MachineBasicBlock &MBB,
+                               const TargetRegisterInfo *TRI) {
+    static const unsigned Leaves[7] = {I8085::A, I8085::B, I8085::C, I8085::D,
+                                       I8085::E, I8085::H, I8085::L};
+    unsigned Val[7];
+    unsigned NextId = 1;
+    for (int i = 0; i < 7; ++i)
+      Val[i] = NextId++;
+    auto leafIdx = [&](unsigned R) -> int {
+      for (int i = 0; i < 7; ++i)
+        if (Leaves[i] == R)
+          return i;
+      return -1;
+    };
+    auto invalidate = [&](unsigned R) {
+      for (int i = 0; i < 7; ++i)
+        if (TRI->regsOverlap(R, Leaves[i]))
+          Val[i] = NextId++;
+    };
+
+    bool Changed = false;
+    for (auto It = MBB.begin(); It != MBB.end();) {
+      MachineInstr &MI = *It;
+      auto Nxt = std::next(It);
+
+      if (MI.getOpcode() == I8085::MOV && MI.getOperand(0).isReg() &&
+          MI.getOperand(1).isReg()) {
+        int di = leafIdx(MI.getOperand(0).getReg());
+        int si = leafIdx(MI.getOperand(1).getReg());
+        if (di >= 0 && si >= 0) {
+          // Pure leaf-to-leaf copy (neither operand is the memory pseudo M).
+          if (Val[di] == Val[si]) {
+            It = MBB.erase(It); // dst already holds src's value: redundant.
+            Changed = true;
+            continue;
+          }
+          Val[di] = Val[si];
+          It = Nxt;
+          continue;
+        }
+        // A MOV touching M (a load / store): a leaf dst gets an unknown value.
+        if (di >= 0)
+          Val[di] = NextId++;
+        It = Nxt;
+        continue;
+      }
+
+      // Any other instruction: invalidate the leaves it (implicitly) defines.
+      for (const MachineOperand &MO : MI.operands())
+        if (MO.isReg() && MO.isDef() && MO.getReg())
+          invalidate(MO.getReg());
+      for (MCPhysReg R : MI.getDesc().implicit_defs())
+        invalidate(R);
+
+      It = Nxt;
+    }
     return Changed;
   }
 };

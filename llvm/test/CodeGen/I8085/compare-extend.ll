@@ -50,7 +50,6 @@ define i1 @cmp_zext_i8(i8 %a, i8 %b) {
 ; CHECK-NEXT:    MOV A, M
 ; CHECK-NEXT:    MOV E, A
 ; CHECK-NEXT:    MVI D, 0
-; CHECK-NEXT:    MOV A, E
 ; CHECK-NEXT:    SUB C
 ; CHECK-NEXT:    MOV C, A
 ; CHECK-NEXT:    MOV A, D

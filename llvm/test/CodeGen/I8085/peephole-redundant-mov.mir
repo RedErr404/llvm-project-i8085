@@ -1,0 +1,60 @@
+# RUN: llc -run-pass=i8085-peephole %s -o - | FileCheck %s
+
+# Post-expansion redundant-copy elimination. A register pair copied out and
+# straight back (MOV B,H; MOV C,L; MOV H,B; MOV L,C - left behind by LOAD_16
+# style pseudo expansion) has the two back-copies removed: after MOV B,H the
+# registers B and H hold the same value, so MOV H,B is a no-op. MOV touches no
+# flags, so the removal is always safe. A copy-back is kept when the source
+# register was redefined in between (its value no longer matches).
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @pair_roundtrip() { ret void }
+  define void @redef_blocks_removal() { ret void }
+  define void @self_move() { ret void }
+...
+
+---
+name:            pair_roundtrip
+body:             |
+  bb.0:
+    ; CHECK-LABEL: name: pair_roundtrip
+    ; CHECK: $b = MOV $h
+    ; CHECK-NEXT: $c = MOV $l
+    ; CHECK-NOT: $h = MOV $b
+    ; CHECK-NOT: $l = MOV $c
+    $b = MOV $h
+    $c = MOV $l
+    $h = MOV $b
+    $l = MOV $c
+    RET implicit $sp, implicit-def $sp
+...
+
+---
+name:            redef_blocks_removal
+body:             |
+  bb.0:
+    ; CHECK-LABEL: name: redef_blocks_removal
+    ; A LXI to HL clobbers H between the copy and the copy-back, so restoring
+    ; H from B is a real move and must be kept.
+    ; CHECK: $b = MOV $h
+    ; CHECK: $hl = LXI 5
+    ; CHECK: $h = MOV $b
+    $b = MOV $h
+    $hl = LXI 5
+    $h = MOV $b
+    RET implicit $sp, implicit-def $sp
+...
+
+---
+name:            self_move
+body:             |
+  bb.0:
+    ; CHECK-LABEL: name: self_move
+    ; A second identical copy is redundant (dst already holds src's value).
+    ; CHECK: $d = MOV $e
+    ; CHECK-NOT: $d = MOV $e
+    $d = MOV $e
+    $d = MOV $e
+    RET implicit $sp, implicit-def $sp
+...
