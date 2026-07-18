@@ -1922,6 +1922,19 @@ bool I8085ExpandPseudo::expand<I8085::ADD_16>(Block &MBB, BlockIt MBBI) {
   unsigned workReg = destReg;
   bool copyBack = false;
 
+  // If the destination pair is HL, DAD adds the other operand to HL in a single
+  // byte (HL += rp). $src is tied to $dst so the first operand is already in HL.
+  // DAD writes only CY (not Z/S/P/AC), so restrict it to where the full flags
+  // are dead afterwards.
+  if (destReg == I8085::HL) {
+    unsigned addend = (operandOne == I8085::HL) ? operandTwo : operandOne;
+    if (!isPhysRegLive(MBB, std::next(MBBI), I8085::SREG)) {
+      buildMI(MBB, MBBI, I8085::DAD).addReg(addend);
+      MI.eraseFromParent();
+      return true;
+    }
+  }
+
   if (destReg == operandTwo && destReg != operandOne) {
     std::swap(operandOne, operandTwo);
   }

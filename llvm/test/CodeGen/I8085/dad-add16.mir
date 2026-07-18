@@ -1,0 +1,37 @@
+# RUN: llc -run-pass=i8085-expand-pseudo %s -o - | FileCheck %s
+
+# A 16-bit add whose destination pair is HL expands to a single DAD (HL += rp)
+# instead of the byte-wise ADD_8/ADC sequence. DAD writes only CY (not Z/S/P/AC),
+# so at real expansion time it is gated on the full flags being dead afterwards
+# (verified end-to-end by the bench_addflag i8085-trace differential; isolated
+# -run-pass MIR lacks the post-RA flag liveness to exercise that negative path).
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @dad_hl() { ret void }
+  define void @dad_double() { ret void }
+...
+
+---
+name:            dad_hl
+body:             |
+  bb.0:
+    liveins: $hl, $bc
+    ; CHECK-LABEL: name: dad_hl
+    ; CHECK: DAD $bc
+    ; CHECK-NOT: ADD_8
+    $hl = ADD_16 $hl, $bc, implicit-def dead $sreg, implicit-def dead $a
+    RET implicit $sp, implicit-def $sp
+...
+
+---
+name:            dad_double
+body:             |
+  bb.0:
+    liveins: $hl
+    ; a + a with a in HL is DAD H (doubling).
+    ; CHECK-LABEL: name: dad_double
+    ; CHECK: DAD $hl
+    $hl = ADD_16 $hl, $hl, implicit-def dead $sreg, implicit-def dead $a
+    RET implicit $sp, implicit-def $sp
+...
