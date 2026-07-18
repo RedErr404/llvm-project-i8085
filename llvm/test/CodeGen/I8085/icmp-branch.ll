@@ -73,7 +73,10 @@ f:
 
 define i8 @br_eq_i32(i32 %a, i32 %b) {
 ; CHECK-LABEL: br_eq_i32:
-; CHECK: CMP M
+; The i32 equality is materialized branchlessly (SUB_32 then SUBI_32 1 borrows
+; iff equal -> SUI 1 in the expansion), then SBB A and branched via JNZ.
+; CHECK: SUI 1
+; CHECK: SBB A
 ; CHECK: JNZ
 ; CHECK: RET
 entry:

@@ -6,11 +6,11 @@ define signext i16 @fibonacci(i16 noundef signext %0) #0 {
 ; CHECK: LXI H, 65518
 ; CHECK: DAD	SP
 ; CHECK: SPHL
-; CHECK: ADI 128
+; The i32 signed compare (sext i16 <= 1) is materialized branchlessly:
+; high-byte 0x80 bias, byte-wise SUB/SBB, then SBB A;ANI 1, branched via JNZ.
+; CHECK: XRI 128
 ; CHECK: SBB A
-; CHECK: ANI 128
-; CHECK-DAG: JZ LBB{{.*}}
-; CHECK-DAG: JC LBB{{.*}}
+; CHECK: ANI 1
 ; CHECK: JNZ LBB{{.*}}
 ; CHECK: SPHL
 ; CHECK: RET
