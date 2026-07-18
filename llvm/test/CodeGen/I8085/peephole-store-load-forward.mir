@@ -1,0 +1,37 @@
+# RUN: llc -run-pass=i8085-peephole %s -o - | FileCheck %s
+
+# Store-to-load forwarding. A store to [HL] immediately followed by a load from
+# [HL] reads back the just-stored value (HL and the source register cannot
+# change between two adjacent instructions). A same-register load is redundant
+# and dropped; a different-register load becomes a register copy.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @same_reg_redundant() { ret void }
+  define void @diff_reg_forward() { ret void }
+...
+
+---
+name:            same_reg_redundant
+body:             |
+  bb.0:
+    ; CHECK-LABEL: name: same_reg_redundant
+    ; CHECK: MOV_M $a
+    ; CHECK-NOT: $a = MOV_FROM_M
+    MOV_M $a, implicit $h, implicit $l
+    $a = MOV_FROM_M implicit $h, implicit $l
+    RET implicit $sp, implicit-def $sp
+...
+
+---
+name:            diff_reg_forward
+body:             |
+  bb.0:
+    ; CHECK-LABEL: name: diff_reg_forward
+    ; CHECK: MOV_M $e
+    ; CHECK-NEXT: $a = MOV $e
+    ; CHECK-NOT: MOV_FROM_M
+    MOV_M $e, implicit $h, implicit $l
+    $a = MOV_FROM_M implicit $h, implicit $l
+    RET implicit $sp, implicit-def $sp
+...

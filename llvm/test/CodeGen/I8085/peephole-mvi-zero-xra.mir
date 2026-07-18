@@ -1,0 +1,39 @@
+# RUN: llc -run-pass=i8085-peephole %s -o - | FileCheck %s
+
+# `MVI A,0` (2 bytes / 7 states, no flag effect) becomes `XRA A` (1 byte / 4
+# states) - but XRA A also writes the flags, so the rewrite only fires where
+# SREG is dead afterwards. A's prior value is irrelevant (A^A==0), so its read
+# is marked undef.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @flags_dead() { ret void }
+  define void @flags_live() { ret void }
+...
+
+---
+name:            flags_dead
+body:             |
+  bb.0:
+    ; CHECK-LABEL: name: flags_dead
+    ; SREG is not live out and nothing below reads it: MVI A,0 -> XRA A.
+    ; CHECK: XRA undef $a
+    ; CHECK-NOT: MVI
+    $a = MVI 0
+    RET implicit $sp, implicit-def $sp
+...
+
+---
+name:            flags_live
+body:             |
+  bb.0:
+    liveins: $b
+    ; CHECK-LABEL: name: flags_live
+    ; A conditional return (RZ) reads SREG after the MVI, so SREG is live across
+    ; it and the MVI must be kept (XRA A would clobber the flags RZ needs).
+    ; CHECK: $a = MVI 0
+    ; CHECK-NOT: XRA
+    $a = MVI 0
+    RZ implicit $sreg, implicit $sp, implicit-def $sp
+    RET implicit $sp, implicit-def $sp
+...

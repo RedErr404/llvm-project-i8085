@@ -128,7 +128,7 @@ define i8 @br_eq_i32(i32 %a, i32 %b) {
 ; CHECK-NEXT:    .cfi_adjust_cfa_offset 4294967288
 ; CHECK-NEXT:    RET
 ; CHECK-NEXT:  LBB0_2: ; %f
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    SPHL
 ; CHECK-NEXT:    .cfi_adjust_cfa_offset 4294967288
@@ -251,7 +251,7 @@ define i8 @br_ult_i32(i32 %a, i32 %b) {
 ; CHECK-NEXT:    .cfi_adjust_cfa_offset 4294967288
 ; CHECK-NEXT:    RET
 ; CHECK-NEXT:  LBB1_2: ; %f
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    SPHL
 ; CHECK-NEXT:    .cfi_adjust_cfa_offset 4294967288
@@ -380,7 +380,7 @@ define i8 @br_slt_i32(i32 %a, i32 %b) {
 ; CHECK-NEXT:    .cfi_adjust_cfa_offset 4294967288
 ; CHECK-NEXT:    RET
 ; CHECK-NEXT:  LBB2_2: ; %f
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    SPHL
 ; CHECK-NEXT:    .cfi_adjust_cfa_offset 4294967288
@@ -730,7 +730,7 @@ define i8 @br_eq_i64(i64 %a, i64 %b) {
 ; CHECK-NEXT:    .cfi_adjust_cfa_offset 4294967280
 ; CHECK-NEXT:    RET
 ; CHECK-NEXT:  LBB3_2: ; %f
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:    LXI H, 16
 ; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    SPHL
@@ -1082,7 +1082,7 @@ define i8 @br_ult_i64(i64 %a, i64 %b) {
 ; CHECK-NEXT:    MVI A, 1
 ; CHECK-NEXT:    JMP LBB4_6
 ; CHECK-NEXT:  LBB4_3: ; %f
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:  LBB4_6: ; %t
 ; CHECK-NEXT:    LXI H, 16
 ; CHECK-NEXT:    DAD SP
@@ -1528,7 +1528,7 @@ define i8 @br_slt_i64(i64 %a, i64 %b) {
 ; CHECK-NEXT:    MVI A, 1
 ; CHECK-NEXT:    JMP LBB5_6
 ; CHECK-NEXT:  LBB5_3: ; %f
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:  LBB5_6: ; %t
 ; CHECK-NEXT:    LXI H, 16
 ; CHECK-NEXT:    DAD SP

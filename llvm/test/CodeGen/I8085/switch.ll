@@ -22,7 +22,7 @@ define i8 @switch_i8(i8 %x) {
 ; CHECK-NEXT:    ORA A
 ; CHECK-NEXT:    JNZ LBB0_6
 ; CHECK-NEXT:  ; %bb.3: ; %case0
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:    RET
 ; CHECK-NEXT:  LBB0_4: ; %case5
 ; CHECK-NEXT:    MVI A, 5

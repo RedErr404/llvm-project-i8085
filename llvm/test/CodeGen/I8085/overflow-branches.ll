@@ -41,7 +41,7 @@ define i8 @br_uadd_ov(i16 %a, i16 %b) {
 ; CHECK-NEXT:    MVI A, 1
 ; CHECK-NEXT:    RET
 ; CHECK-NEXT:  LBB0_2: ; %f
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:    RET
 entry:
   %res = call { i16, i1 } @llvm.uadd.with.overflow.i16(i16 %a, i16 %b)
@@ -100,7 +100,7 @@ define i8 @br_sadd_ov(i16 %a, i16 %b) {
 ; CHECK-NEXT:    MVI A, 1
 ; CHECK-NEXT:    RET
 ; CHECK-NEXT:  LBB1_2: ; %f
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:    RET
 entry:
   %res = call { i16, i1 } @llvm.sadd.with.overflow.i16(i16 %a, i16 %b)
@@ -129,7 +129,7 @@ define i8 @br_usub_ov(i8 %a, i8 %b) {
 ; CHECK-NEXT:    MVI A, 1
 ; CHECK-NEXT:    RET
 ; CHECK-NEXT:  LBB2_2: ; %f
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:    RET
 entry:
   %res = call { i8, i1 } @llvm.usub.with.overflow.i8(i8 %a, i8 %b)

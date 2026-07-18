@@ -35,7 +35,7 @@ define i8 @cmp_chain_and_i16(i16 %a) {
 ; CHECK-NEXT:    MVI A, 1
 ; CHECK-NEXT:    RET
 ; CHECK-NEXT:  LBB0_3: ; %f
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:    RET
 entry:
   %cmp1 = icmp sgt i16 %a, 5
@@ -64,7 +64,7 @@ define i8 @cmp_chain_or_i8(i8 %a) {
 ; CHECK-NEXT:    CPI 1
 ; CHECK-NEXT:    JZ LBB1_2
 ; CHECK-NEXT:  ; %bb.3: ; %f
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:    RET
 ; CHECK-NEXT:  LBB1_2: ; %t
 ; CHECK-NEXT:    MVI A, 1
@@ -161,7 +161,7 @@ define i8 @cmp_chain_indep(i16 %a, i16 %b, i16 %c, i16 %d) {
 ; CHECK-NEXT:    MVI A, 1
 ; CHECK-NEXT:    JMP LBB2_3
 ; CHECK-NEXT:  LBB2_4: ; %f
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:  LBB2_3: ; %t
 ; CHECK-NEXT:    LXI H, 4
 ; CHECK-NEXT:    DAD SP

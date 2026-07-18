@@ -15,6 +15,8 @@
 #include "I8085Subtarget.h"
 #include "MCTargetDesc/I8085MCTargetDesc.h"
 
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
@@ -75,6 +77,7 @@ public:
     bool Changed = false;
     MachineRegisterInfo &MRI = MF.getRegInfo();
     const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
+    const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
 
     for (MachineBasicBlock &MBB : MF) {
       for (auto MI = MBB.begin(); MI != MBB.end();) {
@@ -384,10 +387,67 @@ public:
         continue;
       }
 
+      Changed |= storeToLoadForward(MBB, TII);
       Changed |= eliminateRedundantMoves(MBB, TRI);
+      Changed |= mviZeroToXra(MBB, TRI, TII);
     }
 
     return Changed;
+  }
+
+  // Store-to-load forwarding. A store to [HL] immediately followed by a load
+  // from [HL] (`MOV M,x ; MOV y,M`) reads back the value just written - HL and
+  // x cannot change between two adjacent instructions - so the load yields x.
+  // When y==x the load is fully redundant and is dropped; otherwise it becomes
+  // a register copy `MOV y,x` (no memory access, 2 T-states cheaper, and it
+  // feeds the redundant-copy pass below).  The store is left in place.
+  bool storeToLoadForward(MachineBasicBlock &MBB, const TargetInstrInfo *TII) {
+    bool Changed = false;
+    for (auto It = MBB.begin(); It != MBB.end(); ++It) {
+      auto Nxt = std::next(It);
+      if (Nxt == MBB.end())
+        break;
+      if (It->getOpcode() != I8085::MOV_M ||
+          Nxt->getOpcode() != I8085::MOV_FROM_M)
+        continue;
+      unsigned Stored = It->getOperand(0).getReg();
+      unsigned Loaded = Nxt->getOperand(0).getReg();
+      if (Loaded != Stored)
+        BuildMI(MBB, Nxt, Nxt->getDebugLoc(), TII->get(I8085::MOV), Loaded)
+            .addReg(Stored);
+      MBB.erase(Nxt); // drop the memory load (It, the store, stays valid)
+      Changed = true;
+    }
+    return Changed;
+  }
+
+  // `MVI A,0` -> `XRA A` (2 bytes/7 states -> 1 byte/4 states). XRA A also
+  // writes the flags, so this is only valid where SREG is dead afterwards; a
+  // backward LivePhysRegs walk gives the flag liveness at each point. A's prior
+  // value is irrelevant (A^A==0), so its reads are marked undef.
+  bool mviZeroToXra(MachineBasicBlock &MBB, const TargetRegisterInfo *TRI,
+                    const TargetInstrInfo *TII) {
+    LivePhysRegs Live(*TRI);
+    Live.addLiveOuts(MBB);
+    SmallVector<MachineInstr *, 4> ToConvert;
+    for (MachineInstr &MI : llvm::reverse(MBB)) {
+      // Live here is the liveness just after MI (before stepping it back).
+      if (MI.getOpcode() == I8085::MVI && MI.getOperand(0).isReg() &&
+          MI.getOperand(0).getReg() == I8085::A && MI.getOperand(1).isImm() &&
+          MI.getOperand(1).getImm() == 0 && !Live.contains(I8085::SREG))
+        ToConvert.push_back(&MI);
+      Live.stepBackward(MI);
+    }
+    for (MachineInstr *MI : ToConvert) {
+      MachineInstr *NewMI =
+          BuildMI(MBB, *MI, MI->getDebugLoc(), TII->get(I8085::XRA))
+              .addReg(I8085::A, RegState::Undef);
+      for (MachineOperand &MO : NewMI->uses())
+        if (MO.isReg() && MO.getReg() == I8085::A)
+          MO.setIsUndef(true);
+      MI->eraseFromParent();
+    }
+    return !ToConvert.empty();
   }
 
   // Post-expansion redundant-copy elimination. Pseudo expansion (LOAD_16 and

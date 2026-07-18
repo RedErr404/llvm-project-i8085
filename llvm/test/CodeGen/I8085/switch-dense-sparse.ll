@@ -42,7 +42,8 @@ define i8 @switch_sparse(i8 %x) {
 ; CHECK-DAG: MVI A, 20
 ; CHECK-DAG: MVI A, 30
 ; CHECK-DAG: MVI A, 40
-; CHECK-DAG: MVI A, 0
+; The default `return 0` zeroes A via XRA A (MVI A,0 -> XRA A where flags dead).
+; CHECK-DAG: XRA A
 entry:
   switch i8 %x, label %default [
     i8 1, label %case1

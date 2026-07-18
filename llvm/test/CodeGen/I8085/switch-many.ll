@@ -62,7 +62,7 @@ define i8 @switch_many(i8 %x) {
 ; CHECK-NEXT:    MVI A, 16
 ; CHECK-NEXT:    RET
 ; CHECK-NEXT:  LBB0_10: ; %default
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    XRA A
 ; CHECK-NEXT:    RET
 entry:
   switch i8 %x, label %default [
