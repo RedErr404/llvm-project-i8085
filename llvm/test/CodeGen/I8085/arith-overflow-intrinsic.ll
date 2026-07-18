@@ -17,10 +17,8 @@ define i8 @uadd_overflow_i16(i16 %a, i16 %b, i16* %out) {
 ; CHECK: MOV M, B
 ; CHECK: SUB
 ; CHECK: SBB
-; CHECK: JNC
-; CHECK: MVI A, 1
-; CHECK: RET
-; CHECK: MVI A, 0
+; CHECK: SBB A
+; CHECK: ANI 1
 ; CHECK: RET
 entry:
   %x = call {i16, i1} @llvm.uadd.with.overflow.i16(i16 %a, i16 %b)

@@ -50,34 +50,24 @@ define i8 @cmp_eq_i16(i16 %a, i16 %b) {
 ; CHECK-LABEL: cmp_eq_i16:
 ; CHECK:         .cfi_startproc
 ; CHECK-NEXT:  ; %bb.0:
-; CHECK-NEXT:    LXI H, 4
+; CHECK-NEXT:    LXI H, 2
 ; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    MOV E, M
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV D, M
-; CHECK-NEXT:    DCX H
-; CHECK-NEXT:    DCX H
-; CHECK-NEXT:    DCX H
-; CHECK-NEXT:    MOV A, M
 ; CHECK-NEXT:    INX H
-; CHECK-NEXT:    MOV H, M
-; CHECK-NEXT:    MOV L, A
-; CHECK-NEXT:    MVI B, 1
-; CHECK-NEXT:    MOV A, H
-; CHECK-NEXT:    CMP D
-; CHECK-NEXT:    JNZ LBB2_3
-; CHECK-NEXT:  ; %bb.1:
-; CHECK-NEXT:    MOV A, L
-; CHECK-NEXT:    CMP E
-; CHECK-NEXT:    JNZ LBB2_3
-; CHECK-NEXT:  ; %bb.2:
-; CHECK-NEXT:  ; %bb.4:
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    RET
-; CHECK-NEXT:  LBB2_3:
-; CHECK-NEXT:  ; %bb.5:
-; CHECK-NEXT:    MVI B, 0
-; CHECK-NEXT:    MOV A, B
+; CHECK-NEXT:    MOV C, M
+; CHECK-NEXT:    INX H
+; CHECK-NEXT:    MOV B, M
+; CHECK-NEXT:    MOV A, E
+; CHECK-NEXT:    XRA C
+; CHECK-NEXT:    MOV H, A
+; CHECK-NEXT:    MOV A, D
+; CHECK-NEXT:    XRA B
+; CHECK-NEXT:    ORA H
+; CHECK-NEXT:    SUI 1
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    ANI 1
 ; CHECK-NEXT:    RET
 
   %cmp = icmp eq i16 %a, %b
@@ -106,12 +96,8 @@ define i8 @cmp_ult_i16(i16 %a, i16 %b) {
 ; CHECK-NEXT:    MOV A, D
 ; CHECK-NEXT:    SBB B
 ; CHECK-NEXT:    MOV B, A
-; CHECK-NEXT:    JNC LBB3_2
-; CHECK-NEXT:  ; %bb.1:
-; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:    RET
-; CHECK-NEXT:  LBB3_2:
-; CHECK-NEXT:    MVI A, 0
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    ANI 1
 ; CHECK-NEXT:    RET
 
   %cmp = icmp ult i16 %a, %b

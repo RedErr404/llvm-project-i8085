@@ -175,25 +175,19 @@ define i1 @umul_ov_flag(i16 %a, i16 %b) {
 ; CHECK-NEXT:    DCX H
 ; CHECK-NEXT:    DCX H
 ; CHECK-NEXT:    DCX H
-; CHECK-NEXT:    MOV E, M
+; CHECK-NEXT:    MOV C, M
 ; CHECK-NEXT:    INX H
-; CHECK-NEXT:    MOV D, M
-; CHECK-NEXT:    LXI H, 0
-; CHECK-NEXT:    MVI B, 1
-; CHECK-NEXT:    MOV A, D
-; CHECK-NEXT:    CMP H
-; CHECK-NEXT:    JNZ LBB1_3
-; CHECK-NEXT:  ; %bb.1: ; %entry
-; CHECK-NEXT:    MOV A, E
-; CHECK-NEXT:    CMP L
-; CHECK-NEXT:    JNZ LBB1_3
-; CHECK-NEXT:  ; %bb.2: ; %entry
-; CHECK-NEXT:  ; %bb.4: ; %entry
-; CHECK-NEXT:    MVI B, 0
-; CHECK-NEXT:    JMP LBB1_5
-; CHECK-NEXT:  LBB1_3: ; %entry
-; CHECK-NEXT:  LBB1_5: ; %entry
+; CHECK-NEXT:    MOV B, M
+; CHECK-NEXT:    LXI D, 0
+; CHECK-NEXT:    MOV A, C
+; CHECK-NEXT:    XRA E
+; CHECK-NEXT:    MOV H, A
 ; CHECK-NEXT:    MOV A, B
+; CHECK-NEXT:    XRA D
+; CHECK-NEXT:    ORA H
+; CHECK-NEXT:    SUI 1
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    INR A
 ; CHECK-NEXT:    LXI H, 8
 ; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    SPHL
@@ -256,25 +250,19 @@ define i1 @smul_ov_flag(i8 %a, i8 %b) {
 ; CHECK-NEXT:    MOV M, B
 ; CHECK-NEXT:    CALL __mulsi8
 ; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    MOV L, A
+; CHECK-NEXT:    MOV E, A
 ; CHECK-NEXT:    ADI 128
 ; CHECK-NEXT:    SBB A
-; CHECK-NEXT:    MOV H, A
-; CHECK-NEXT:    MVI D, 1
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    CMP H
-; CHECK-NEXT:    JNZ LBB3_3
-; CHECK-NEXT:  ; %bb.1: ; %entry
+; CHECK-NEXT:    MOV D, A
 ; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    CMP L
-; CHECK-NEXT:    JNZ LBB3_3
-; CHECK-NEXT:  ; %bb.2: ; %entry
-; CHECK-NEXT:  ; %bb.4: ; %entry
-; CHECK-NEXT:    MVI D, 0
-; CHECK-NEXT:    JMP LBB3_5
-; CHECK-NEXT:  LBB3_3: ; %entry
-; CHECK-NEXT:  LBB3_5: ; %entry
-; CHECK-NEXT:    MOV A, D
+; CHECK-NEXT:    XRA E
+; CHECK-NEXT:    MOV H, A
+; CHECK-NEXT:    MOV A, B
+; CHECK-NEXT:    XRA D
+; CHECK-NEXT:    ORA H
+; CHECK-NEXT:    SUI 1
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    INR A
 ; CHECK-NEXT:    LXI H, 2
 ; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    SPHL

@@ -19,34 +19,23 @@ define i16 @min_i16(i16 %a, i16 %b) {
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV D, M
 ; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    XRA D
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JNZ LBB0_3
-; CHECK-NEXT:  ; %bb.1: ; %entry
-; CHECK-NEXT:    MOV H, B
-; CHECK-NEXT:    MOV L, C
-; CHECK-NEXT:    MOV A, L
-; CHECK-NEXT:    SUB E
-; CHECK-NEXT:    MOV L, A
-; CHECK-NEXT:    MOV A, H
-; CHECK-NEXT:    SBB D
+; CHECK-NEXT:    XRI 128
 ; CHECK-NEXT:    MOV H, A
-; CHECK-NEXT:    JC LBB0_5
-; CHECK-NEXT:  LBB0_4: ; %entry
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    JMP LBB0_6
-; CHECK-NEXT:  LBB0_3: ; %entry
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JZ LBB0_4
-; CHECK-NEXT:  LBB0_5: ; %entry
-; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:  LBB0_6: ; %entry
+; CHECK-NEXT:    MOV A, D
+; CHECK-NEXT:    XRI 128
+; CHECK-NEXT:    MOV L, A
+; CHECK-NEXT:    MOV A, C
+; CHECK-NEXT:    SUB E
+; CHECK-NEXT:    MOV A, H
+; CHECK-NEXT:    SBB L
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    ANI 1
 ; CHECK-NEXT:    ORA A
 ; CHECK-NEXT:    RNZ
-; CHECK-NEXT:  LBB0_7: ; %entry
+; CHECK-NEXT:  LBB0_1: ; %entry
 ; CHECK-NEXT:    MOV B, D
 ; CHECK-NEXT:    MOV C, E
+; CHECK-NEXT:  ; %bb.2: ; %entry
 ; CHECK-NEXT:    RET
 entry:
   %cmp = icmp slt i16 %a, %b
@@ -68,43 +57,24 @@ define i16 @max_i16(i16 %a, i16 %b) {
 ; CHECK-NEXT:    MOV E, M
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV D, M
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    XRA D
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JNZ LBB1_3
-; CHECK-NEXT:  ; %bb.1: ; %entry
-; CHECK-NEXT:    MOV H, B
-; CHECK-NEXT:    MOV L, C
-; CHECK-NEXT:    MOV A, L
-; CHECK-NEXT:    SUB E
-; CHECK-NEXT:    MOV L, A
-; CHECK-NEXT:    MOV A, H
-; CHECK-NEXT:    SBB D
+; CHECK-NEXT:    MOV A, D
+; CHECK-NEXT:    XRI 128
 ; CHECK-NEXT:    MOV H, A
-; CHECK-NEXT:    JC LBB1_2
-; CHECK-NEXT:  ; %bb.5: ; %entry
 ; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    CMP D
-; CHECK-NEXT:    JNZ LBB1_9
-; CHECK-NEXT:  ; %bb.6: ; %entry
-; CHECK-NEXT:    MOV A, C
-; CHECK-NEXT:    CMP E
-; CHECK-NEXT:    JZ LBB1_2
-; CHECK-NEXT:  LBB1_9: ; %entry
-; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:    JMP LBB1_10
-; CHECK-NEXT:  LBB1_3: ; %entry
-; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JZ LBB1_9
-; CHECK-NEXT:  LBB1_2: ; %entry
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:  LBB1_10: ; %entry
+; CHECK-NEXT:    XRI 128
+; CHECK-NEXT:    MOV L, A
+; CHECK-NEXT:    MOV A, E
+; CHECK-NEXT:    SUB C
+; CHECK-NEXT:    MOV A, H
+; CHECK-NEXT:    SBB L
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    ANI 1
 ; CHECK-NEXT:    ORA A
 ; CHECK-NEXT:    RNZ
-; CHECK-NEXT:  LBB1_11: ; %entry
+; CHECK-NEXT:  LBB1_1: ; %entry
 ; CHECK-NEXT:    MOV B, D
 ; CHECK-NEXT:    MOV C, E
+; CHECK-NEXT:  ; %bb.2: ; %entry
 ; CHECK-NEXT:    RET
 entry:
   %cmp = icmp sgt i16 %a, %b
@@ -220,78 +190,46 @@ define i16 @clamp_i16(i16 %x, i16 %lo, i16 %hi) {
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV D, M
 ; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    XRA D
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JNZ LBB5_3
-; CHECK-NEXT:  ; %bb.1: ; %entry
-; CHECK-NEXT:    MOV H, B
-; CHECK-NEXT:    MOV L, C
-; CHECK-NEXT:    MOV A, L
-; CHECK-NEXT:    SUB E
-; CHECK-NEXT:    MOV L, A
-; CHECK-NEXT:    MOV A, H
-; CHECK-NEXT:    SBB D
+; CHECK-NEXT:    XRI 128
 ; CHECK-NEXT:    MOV H, A
-; CHECK-NEXT:    JNC LBB5_4
-; CHECK-NEXT:  LBB5_2: ; %entry
-; CHECK-NEXT:    MVI A, 1
+; CHECK-NEXT:    MOV A, D
+; CHECK-NEXT:    XRI 128
+; CHECK-NEXT:    MOV L, A
+; CHECK-NEXT:    MOV A, C
+; CHECK-NEXT:    SUB E
+; CHECK-NEXT:    MOV A, H
+; CHECK-NEXT:    SBB L
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    ANI 1
 ; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JNZ LBB5_6
-; CHECK-NEXT:  LBB5_5: ; %entry
+; CHECK-NEXT:    JNZ LBB5_1
+; CHECK-NEXT:  ; %bb.4: ; %entry
 ; CHECK-NEXT:    MOV D, B
 ; CHECK-NEXT:    MOV E, C
-; CHECK-NEXT:  LBB5_6: ; %entry
+; CHECK-NEXT:  LBB5_1: ; %entry
 ; CHECK-NEXT:    LXI H, 6
 ; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    MOV C, M
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV B, M
-; CHECK-NEXT:    MOV A, D
-; CHECK-NEXT:    XRA B
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JNZ LBB5_9
-; CHECK-NEXT:  ; %bb.7: ; %entry
-; CHECK-NEXT:    MOV H, D
-; CHECK-NEXT:    MOV L, E
-; CHECK-NEXT:    MOV A, L
-; CHECK-NEXT:    SUB C
-; CHECK-NEXT:    MOV L, A
-; CHECK-NEXT:    MOV A, H
-; CHECK-NEXT:    SBB B
-; CHECK-NEXT:    MOV H, A
-; CHECK-NEXT:    JC LBB5_8
-; CHECK-NEXT:  ; %bb.12: ; %entry
-; CHECK-NEXT:    MOV A, D
-; CHECK-NEXT:    CMP B
-; CHECK-NEXT:    JNZ LBB5_16
-; CHECK-NEXT:  ; %bb.13: ; %entry
-; CHECK-NEXT:    MOV A, E
-; CHECK-NEXT:    CMP C
-; CHECK-NEXT:    JZ LBB5_8
-; CHECK-NEXT:  LBB5_16: ; %entry
-; CHECK-NEXT:    MVI A, 1
-; CHECK-NEXT:    JMP LBB5_17
-; CHECK-NEXT:  LBB5_3: ; %entry
 ; CHECK-NEXT:    MOV A, B
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JNZ LBB5_2
-; CHECK-NEXT:  LBB5_4: ; %entry
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:    ORA A
-; CHECK-NEXT:    JNZ LBB5_6
-; CHECK-NEXT:    JMP LBB5_5
-; CHECK-NEXT:  LBB5_9: ; %entry
+; CHECK-NEXT:    XRI 128
+; CHECK-NEXT:    MOV H, A
 ; CHECK-NEXT:    MOV A, D
-; CHECK-NEXT:    ANI 128
-; CHECK-NEXT:    JZ LBB5_16
-; CHECK-NEXT:  LBB5_8: ; %entry
-; CHECK-NEXT:    MVI A, 0
-; CHECK-NEXT:  LBB5_17: ; %entry
+; CHECK-NEXT:    XRI 128
+; CHECK-NEXT:    MOV L, A
+; CHECK-NEXT:    MOV A, C
+; CHECK-NEXT:    SUB E
+; CHECK-NEXT:    MOV A, H
+; CHECK-NEXT:    SBB L
+; CHECK-NEXT:    SBB A
+; CHECK-NEXT:    ANI 1
 ; CHECK-NEXT:    ORA A
 ; CHECK-NEXT:    RNZ
-; CHECK-NEXT:  LBB5_18: ; %entry
+; CHECK-NEXT:  LBB5_2: ; %entry
 ; CHECK-NEXT:    MOV B, D
 ; CHECK-NEXT:    MOV C, E
+; CHECK-NEXT:  ; %bb.3: ; %entry
 ; CHECK-NEXT:    RET
 entry:
   %cmp1 = icmp slt i16 %x, %lo
