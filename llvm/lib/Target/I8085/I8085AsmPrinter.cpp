@@ -176,6 +176,24 @@ bool I8085AsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
 void I8085AsmPrinter::emitInstruction(const MachineInstr *MI) {
   I8085MCInstLower MCInstLowering(OutContext, *this);
 
+  // Indirect tail call: the target is in BC (it survives the HL-clobbering
+  // epilogue). Move it into HL and jump via PCHL - no return address pushed.
+  if (MI->getOpcode() == I8085::TCRETURN_INDIRECT) {
+    auto emitRR = [&](unsigned Opc, unsigned R0, unsigned R1) {
+      MCInst I;
+      I.setOpcode(Opc);
+      I.addOperand(MCOperand::createReg(R0));
+      I.addOperand(MCOperand::createReg(R1));
+      EmitToStreamer(*OutStreamer, I);
+    };
+    emitRR(I8085::MOV, I8085::H, I8085::B);
+    emitRR(I8085::MOV, I8085::L, I8085::C);
+    MCInst Jmp;
+    Jmp.setOpcode(I8085::PCHL);
+    EmitToStreamer(*OutStreamer, Jmp);
+    return;
+  }
+
   MCInst I;
   MCInstLowering.lowerInstruction(*MI, I);
   EmitToStreamer(*OutStreamer, I);

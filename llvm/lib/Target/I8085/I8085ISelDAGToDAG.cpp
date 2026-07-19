@@ -48,6 +48,7 @@ private:
   void Select(SDNode *N) override;
   bool trySelect(SDNode *N);
   bool selectCall(SDNode *N);
+  bool selectTailCall(SDNode *N);
 
   template <unsigned NodeType> bool select(SDNode *N);
 
@@ -1553,6 +1554,8 @@ bool I8085DAGToDAGISel::trySelect(SDNode *N) {
   switch (Opcode) {
   case I8085ISD::CALL:
     return selectCall(N);
+  case I8085ISD::TC_RETURN:
+    return selectTailCall(N);
   case ISD::SETCC:
     return select<ISD::SETCC>(N);
   case ISD::BR_CC:
@@ -1639,6 +1642,46 @@ bool I8085DAGToDAGISel::selectCall(SDNode *N) {
   SDVTList NodeTys = CurDAG->getVTList(MVT::Other, MVT::Glue);
   SDNode *ResNode =
       CurDAG->getMachineNode(I8085::CALL_INDIRECT, DL, NodeTys, Ops);
+
+  ReplaceUses(SDValue(N, 0), SDValue(ResNode, 0));
+  ReplaceUses(SDValue(N, 1), SDValue(ResNode, 1));
+  CurDAG->RemoveDeadNode(N);
+  return true;
+}
+
+// Indirect tail call. Operands: chain, target, adj-constant, [arg regs...],
+// regmask, [glue]. Direct tail calls (symbol target) go through the .td
+// TCRETURN -> JMP patterns; this handles the register/loaded-pointer target by
+// carrying it in BC (survives the HL-clobbering epilogue) and emitting
+// TCRETURN_INDIRECT, which becomes `MOV H,B; MOV L,C; PCHL` at asm-print time.
+bool I8085DAGToDAGISel::selectTailCall(SDNode *N) {
+  SDValue Target = N->getOperand(1);
+  unsigned TOpc = Target.getOpcode();
+  if (TOpc == ISD::TargetGlobalAddress || TOpc == ISD::TargetExternalSymbol)
+    return false;
+
+  SDValue InGlue;
+  SDValue Chain = N->getOperand(0);
+  unsigned LastOpNum = N->getNumOperands() - 1;
+  if (N->getOperand(LastOpNum).getValueType() == MVT::Glue) {
+    InGlue = N->getOperand(LastOpNum);
+    --LastOpNum;
+  }
+
+  SDLoc DL(N);
+  Chain = CurDAG->getCopyToReg(Chain, DL, I8085::BC, Target, InGlue);
+
+  // Carry the argument-register operands and the register mask (operands after
+  // the adj constant at index 2); the indirect jump does not need the adj.
+  SmallVector<SDValue, 8> Ops;
+  for (unsigned I = 3, E = LastOpNum + 1; I != E; ++I)
+    Ops.push_back(N->getOperand(I));
+  Ops.push_back(Chain);
+  Ops.push_back(Chain.getValue(1));
+
+  SDVTList NodeTys = CurDAG->getVTList(MVT::Other, MVT::Glue);
+  SDNode *ResNode =
+      CurDAG->getMachineNode(I8085::TCRETURN_INDIRECT, DL, NodeTys, Ops);
 
   ReplaceUses(SDValue(N, 0), SDValue(ResNode, 0));
   ReplaceUses(SDValue(N, 1), SDValue(ResNode, 1));

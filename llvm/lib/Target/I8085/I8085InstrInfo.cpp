@@ -287,6 +287,8 @@ unsigned I8085InstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
   switch (Opcode) {
   case I8085::TCRETURN:
     return 3;
+  case I8085::TCRETURN_INDIRECT:
+    return 3; // MOV H,B ; MOV L,C ; PCHL
   // A regular instruction
   default: {
     const MCInstrDesc &Desc = get(Opcode);

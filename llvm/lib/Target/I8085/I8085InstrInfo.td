@@ -670,6 +670,14 @@ let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Uses = [SP] in {
                              "TCRETURN $dst", []>;
 }
 
+// Indirect tail call: jump to the target held in BC via PCHL (no return address
+// pushed). BC is used because the epilogue clobbers HL but not BC; the target is
+// moved BC->HL and PCHL'd only after the epilogue (done at asm-print time).
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1,
+    Uses = [SP, BC], Defs = [HL] in {
+  def TCRETURN_INDIRECT : I8085Pseudo<(outs), (ins), "TCRETURN_INDIRECT", []>;
+}
+
 let isTerminator = 1, isReturn = 1, isBarrier = 1 in {
   let Uses = [SP], Defs = [SP] in {
     def RET : F1<0b11001001, (outs), (ins), "RET", [(I8085retflag)]>;
