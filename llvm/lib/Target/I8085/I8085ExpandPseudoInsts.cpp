@@ -1727,8 +1727,42 @@ bool I8085ExpandPseudo::expand<I8085::XOR_16>(Block &MBB, BlockIt MBBI) {
   buildMI(MBB, MBBI, I8085::XOR_8)
       .addReg(destHigh, RegState::Define | getDeadRegState(DstIsDead))
       .addReg(destHigh)
-      .addReg(opHigh);    
-      
+      .addReg(opHigh);
+
+  MI.eraseFromParent();
+  return true;
+}
+
+template <>
+bool I8085ExpandPseudo::expand<I8085::NOT_16>(Block &MBB, BlockIt MBBI) {
+  MachineInstr &MI = *MBBI;
+
+  unsigned destReg = MI.getOperand(0).getReg();
+  unsigned srcReg = MI.getOperand(1).getReg();  // tied to destReg
+
+  unsigned destLow, destHigh, srcLow, srcHigh;
+  if (!getPairRegs(destReg, destLow, destHigh))
+    return false;
+  if (!getPairRegs(srcReg, srcLow, srcHigh))
+    return false;
+
+  // Complement each byte with CMA (1 byte, 4T, sets no flags).
+  buildMI(MBB, MBBI, I8085::MOV)
+      .addReg(I8085::A, RegState::Define)
+      .addReg(srcLow);
+  buildMI(MBB, MBBI, I8085::CMA);
+  buildMI(MBB, MBBI, I8085::MOV)
+      .addReg(destLow, RegState::Define)
+      .addReg(I8085::A);
+
+  buildMI(MBB, MBBI, I8085::MOV)
+      .addReg(I8085::A, RegState::Define)
+      .addReg(srcHigh);
+  buildMI(MBB, MBBI, I8085::CMA);
+  buildMI(MBB, MBBI, I8085::MOV)
+      .addReg(destHigh, RegState::Define)
+      .addReg(I8085::A);
+
   MI.eraseFromParent();
   return true;
 }
@@ -3518,6 +3552,7 @@ bool I8085ExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
     EXPAND(I8085::SHL_8_HI);
     EXPAND(I8085::SRL_8_HI);
     EXPAND(I8085::ASR_8_BY_7);
+    EXPAND(I8085::NOT_16);
     EXPAND(I8085::INC_MEM_8_WITH_IMM_ADDR);
     EXPAND(I8085::DEC_MEM_8_WITH_IMM_ADDR);
     EXPAND(I8085::INC_MEM_8_ADDR_CONTENT);

@@ -343,8 +343,18 @@ let Constraints = "$src = $rd", Defs=[SREG, A]  in {
       : I8085Pseudo<(outs GR8: $rd),
               (ins GR8: $src, I8085Imm8: $val),
               "XORI_8\t$rd, $val",
-              [(set i8: $rd, (xor i8: $src, imm: $val))]>;                                                                                          
+              [(set i8: $rd, (xor i8: $src, imm: $val))]>;
 }
+
+// ~x for i16. Matching (not i16) directly avoids materializing an all-ones
+// register (LXI D, -1) and lets the expansion use per-byte CMA (1 byte, 4T,
+// flag-preserving). CMA does not touch flags, so only A is clobbered.
+let Constraints = "$src = $rd", Defs=[A] in
+def NOT_16
+    : I8085Pseudo<(outs GR16: $rd),
+            (ins GR16: $src),
+            "NOT_16\t$rd",
+            [(set i16: $rd, (not i16: $src))]>;
 
 let Defs=[SREG,A], Uses=[A] in def ANA : F2<0b10100,(outs), (ins GR8: $rs), "ANA $rs", []>;
 let Defs=[SREG,A], Uses=[A] in def ORA : F2<0b10110,(outs), (ins GR8: $rs), "ORA $rs", []>;

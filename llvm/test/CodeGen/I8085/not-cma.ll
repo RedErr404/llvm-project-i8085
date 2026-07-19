@@ -21,3 +21,15 @@ define i8 @not8_then_add(i8 %x, i8 %y) {
   %r = add i8 %n, %y
   ret i8 %r
 }
+
+; i16 ~x should complement each byte with CMA and must not materialize an
+; all-ones register with LXI D, -1.
+define i16 @not16(i16 %x) {
+; CHECK-LABEL: not16:
+; CHECK-NOT:  LXI D, -1
+; CHECK:      CMA
+; CHECK:      CMA
+; CHECK-NOT:  XRA
+  %r = xor i16 %x, -1
+  ret i16 %r
+}
