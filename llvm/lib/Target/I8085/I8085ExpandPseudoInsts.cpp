@@ -426,6 +426,28 @@ bool I8085ExpandPseudo::expand<I8085::LOAD_16_ADDR_CONTENT>(Block &MBB, BlockIt 
   unsigned destReg = MI.getOperand(0).getReg();
   unsigned srcReg = MI.getOperand(1).getReg();
 
+  // Undoc fast path: LHLX loads HL = [DE] in one byte with no flag/A clobber,
+  // replacing the byte-wise LDAX D; MOV; INX D; LDAX D; MOV; DCX D sequence.
+  // HL is always dead on this pseudo (implicit-def dead $hl), so clobbering it
+  // is safe; the loaded value is then copied out of HL into the destination.
+  if (HasUndoc && srcReg == I8085::DE) {
+    buildMI(MBB, MBBI, I8085::LHLX);
+    if (destReg == I8085::SP) {
+      buildMI(MBB, MBBI, I8085::SPHL);
+    } else if (destReg != I8085::HL) {
+      if (!getPairRegs(destReg, destLowReg, destHighReg))
+        return false;
+      buildMI(MBB, MBBI, I8085::MOV)
+          .addReg(destLowReg, RegState::Define)
+          .addReg(I8085::L);
+      buildMI(MBB, MBBI, I8085::MOV)
+          .addReg(destHighReg, RegState::Define)
+          .addReg(I8085::H);
+    }
+    MI.eraseFromParent();
+    return true;
+  }
+
   if ((srcReg == I8085::BC || srcReg == I8085::DE) && destReg != srcReg) {
     bool DestIsSP = (destReg == I8085::SP);
     if (DestIsSP)
@@ -635,6 +657,26 @@ bool I8085ExpandPseudo::expand<I8085::STORE_16_ADDR_CONTENT>(Block &MBB, BlockIt
 
   unsigned addrReg = MI.getOperand(0).getReg();
   unsigned srcReg = MI.getOperand(1).getReg();
+
+  // Undoc fast path: SHLX stores [DE] = HL in one byte with no flag/A clobber,
+  // replacing the byte-wise MOV A; STAX D; INX D; MOV A; STAX D; DCX D sequence.
+  // Move the source value into HL first (HL is always dead here, implicit-def
+  // dead $hl), then SHLX. Works even when src is DE (value copied out before
+  // the store, DE stays valid as the address).
+  if (HasUndoc && addrReg == I8085::DE) {
+    unsigned srcLow, srcHigh;
+    if (!getPairRegs(srcReg, srcLow, srcHigh))
+      return false;
+    buildMI(MBB, MBBI, I8085::MOV)
+        .addReg(I8085::L, RegState::Define)
+        .addReg(srcLow);
+    buildMI(MBB, MBBI, I8085::MOV)
+        .addReg(I8085::H, RegState::Define)
+        .addReg(srcHigh);
+    buildMI(MBB, MBBI, I8085::SHLX);
+    MI.eraseFromParent();
+    return true;
+  }
 
   if (addrReg == I8085::HL && srcReg == I8085::HL) {
     buildMI(MBB, MBBI, I8085::PUSH).addReg(I8085::BC);

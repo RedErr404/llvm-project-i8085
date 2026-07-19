@@ -1,0 +1,92 @@
+# RUN: llc -O0 -mattr=+undoc -run-pass=i8085-expand-pseudo %s -o - | FileCheck %s
+# RUN: llc -O0 -run-pass=i8085-expand-pseudo %s -o - | FileCheck %s --check-prefix=PLAIN
+
+# LOAD_16_ADDR_CONTENT / STORE_16_ADDR_CONTENT dereference a pointer held in a
+# GR16 register. When that pointer is in DE and undoc is enabled, LHLX (HL=[DE])
+# and SHLX ([DE]=HL) do the 16-bit transfer in one byte with no flag/A clobber,
+# versus the byte-wise LDAX/STAX sequence. HL and A are already dead on these
+# pseudos (implicit-def dead $hl / $a), so no liveness guard is needed.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @load_de_to_bc() { ret void }
+  define void @load_de_to_de() { ret void }
+  define void @store_bc_via_de() { ret void }
+  define void @store_de_via_de() { ret void }
+  define void @load_bc_ptr_no_lhlx() { ret void }
+...
+---
+name:            load_de_to_bc
+body:             |
+  bb.0:
+    liveins: $de
+    ; Pointer in DE, dest BC: LHLX then move HL->BC. No LDAX, no INX/DCX walk.
+    ; CHECK-LABEL: name: load_de_to_bc
+    ; CHECK: LHLX
+    ; CHECK-NEXT: $c = MOV $l
+    ; CHECK-NEXT: $b = MOV $h
+    ; CHECK-NOT: LDAX
+    ; PLAIN-LABEL: name: load_de_to_bc
+    ; PLAIN-NOT: LHLX
+    ; PLAIN: LDAX $de
+    $bc = LOAD_16_ADDR_CONTENT killed $de, implicit-def dead $hl, implicit-def dead $a, implicit $sp
+    RET implicit $sp, implicit-def $sp, implicit $bc
+...
+---
+name:            load_de_to_de
+body:             |
+  bb.0:
+    liveins: $de
+    ; Pointer and dest both DE: LHLX then copy result HL->DE.
+    ; CHECK-LABEL: name: load_de_to_de
+    ; CHECK: LHLX
+    ; CHECK-NEXT: $e = MOV $l
+    ; CHECK-NEXT: $d = MOV $h
+    ; CHECK-NOT: LDAX
+    $de = LOAD_16_ADDR_CONTENT killed $de, implicit-def dead $hl, implicit-def dead $a, implicit $sp
+    RET implicit $sp, implicit-def $sp, implicit $de
+...
+---
+name:            store_bc_via_de
+body:             |
+  bb.0:
+    liveins: $de, $bc
+    ; Store BC through pointer in DE: move BC->HL then SHLX. No STAX.
+    ; CHECK-LABEL: name: store_bc_via_de
+    ; CHECK: $l = MOV $c
+    ; CHECK-NEXT: $h = MOV $b
+    ; CHECK-NEXT: SHLX
+    ; CHECK-NOT: STAX
+    ; PLAIN-LABEL: name: store_bc_via_de
+    ; PLAIN-NOT: SHLX
+    ; PLAIN: STAX $de
+    STORE_16_ADDR_CONTENT killed $de, killed $bc, implicit-def dead $hl, implicit-def dead $a, implicit $sp
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            store_de_via_de
+body:             |
+  bb.0:
+    liveins: $de
+    ; Store DE's own value through pointer in DE: copy DE->HL first, then SHLX.
+    ; CHECK-LABEL: name: store_de_via_de
+    ; CHECK: $l = MOV $e
+    ; CHECK-NEXT: $h = MOV $d
+    ; CHECK-NEXT: SHLX
+    ; CHECK-NOT: STAX
+    STORE_16_ADDR_CONTENT killed $de, killed $de, implicit-def dead $hl, implicit-def dead $a, implicit $sp
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            load_bc_ptr_no_lhlx
+body:             |
+  bb.0:
+    liveins: $bc
+    ; Pointer in BC (not DE): LHLX addresses only via DE, so this must NOT use
+    ; LHLX; it takes the existing LDAX path.
+    ; CHECK-LABEL: name: load_bc_ptr_no_lhlx
+    ; CHECK-NOT: LHLX
+    ; CHECK: LDAX $bc
+    $de = LOAD_16_ADDR_CONTENT killed $bc, implicit-def dead $hl, implicit-def dead $a, implicit $sp
+    RET implicit $sp, implicit-def $sp, implicit $de
+...
