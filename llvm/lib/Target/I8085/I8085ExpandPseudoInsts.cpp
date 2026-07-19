@@ -54,6 +54,7 @@ private:
 
   const I8085RegisterInfo *TRI;
   const TargetInstrInfo *TII;
+  bool HasUndoc;
 
 
   bool expandMBB(Block &MBB);
@@ -388,6 +389,7 @@ bool I8085ExpandPseudo::runOnMachineFunction(MachineFunction &MF) {
   const I8085Subtarget &STI = MF.getSubtarget<I8085Subtarget>();
   TRI = STI.getRegisterInfo();
   TII = STI.getInstrInfo();
+  HasUndoc = STI.hasUndocumented();
 
   // We need to track liveness in order to use register scavenging.
   MF.getProperties().set(MachineFunctionProperties::Property::TracksLiveness);
@@ -1291,13 +1293,43 @@ bool I8085ExpandPseudo::expand<I8085::LOAD_16_WITH_ADDR>(Block &MBB, BlockIt MBB
 
   // Likewise for two nearby SP-relative loads when HL and flags are already
   // free: one computed address plus a short HL walk beats a second LXI/DAD.
-  if (tryExpandAdjacentLoad16Pair(MBB, MBBI))
+  // When undoc is enabled, LDSI+LHLX per load is smaller and avoids carry clobber.
+  if (!HasUndoc && tryExpandAdjacentLoad16Pair(MBB, MBBI))
     return true;
   
   unsigned lowReg,highReg;
   unsigned destReg = MI.getOperand(0).getReg();
   unsigned baseReg = MI.getOperand(1).getReg();
   int64_t offsetToLoad = MI.getOperand(2).getImm();
+
+  // Undoc fast path: LDSI + LHLX for SP-relative 16-bit loads.
+  // LDSI offset ; LHLX = 3 bytes, no flag clobber.
+  // Standard: LXI H,offset; DAD SP; MOV A,M; INX H; MOV H,M; MOV L,A = 8+ bytes.
+  // Requires: base=SP, offset in [0,255], DE is dead or being written by this load.
+  if (HasUndoc && baseReg == I8085::SP && offsetToLoad >= 0 && offsetToLoad <= 255) {
+    bool DEUsed = isPhysRegLive(MBB, MBBI, I8085::DE) ||
+                  isPhysRegLive(MBB, MBBI, I8085::D) ||
+                  isPhysRegLive(MBB, MBBI, I8085::E);
+    bool DEOk = !DEUsed || destReg == I8085::DE;
+    if (DEOk) {
+    if (destReg == I8085::HL || destReg == I8085::SP) {
+      buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToLoad);
+      buildMI(MBB, MBBI, I8085::LHLX);
+      if (destReg == I8085::SP)
+        buildMI(MBB, MBBI, I8085::SPHL);
+      MI.eraseFromParent();
+      return true;
+    }
+    if (getPairRegs(destReg, lowReg, highReg)) {
+      buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToLoad);
+      buildMI(MBB, MBBI, I8085::LHLX);
+      buildMI(MBB, MBBI, I8085::MOV).addReg(lowReg, RegState::Define).addReg(I8085::L);
+      buildMI(MBB, MBBI, I8085::MOV).addReg(highReg, RegState::Define).addReg(I8085::H);
+      MI.eraseFromParent();
+      return true;
+    }
+    }
+  }
 
   const bool PreserveHL =
       (baseReg != I8085::HL && destReg != I8085::HL &&
@@ -2035,6 +2067,15 @@ template <> bool I8085ExpandPseudo::expand<I8085::SUB_16>(Block &MBB, BlockIt MB
   unsigned opLow,opHigh;
   unsigned destLow,destHigh;
 
+  // Undoc fast path: DSUB = HL - BC (1 byte vs 6 bytes)
+  if (HasUndoc && destReg == I8085::HL && operandTwo == I8085::BC) {
+    if (operandOne != I8085::HL)
+      buildMI(MBB, MBBI, TargetOpcode::COPY, I8085::HL).addReg(operandOne);
+    buildMI(MBB, MBBI, I8085::DSUB);
+    MI.eraseFromParent();
+    return true;
+  }
+
   if (destReg == operandTwo && destReg != operandOne) {
     if (!getPairRegs(destReg, destLow, destHigh))
       return false;
@@ -2468,6 +2509,16 @@ template <> bool I8085ExpandPseudo::expand<I8085::RL_16>(Block &MBB, BlockIt MBB
   unsigned srcReg = MI.getOperand(1).getReg();
 
   unsigned regLow, regHigh;
+
+  // Undoc fast path: RDEL (1 byte vs ~12 bytes)
+  if (HasUndoc && destReg == I8085::DE) {
+    if (srcReg != I8085::DE)
+      buildMI(MBB, MBBI, TargetOpcode::COPY, I8085::DE).addReg(srcReg);
+    buildMI(MBB, MBBI, I8085::RDEL);
+    MI.eraseFromParent();
+    return true;
+  }
+
   if (!getPairRegs(destReg, regLow, regHigh))
     return false;
   if (destReg != srcReg) {
@@ -2595,6 +2646,16 @@ template <> bool I8085ExpandPseudo::expand<I8085::ASR_16>(Block &MBB, BlockIt MB
   unsigned srcReg = MI.getOperand(1).getReg();
 
   unsigned regLow, regHigh;
+
+  // Undoc fast path: ARHL (1 byte vs ~8 bytes)
+  if (HasUndoc && destReg == I8085::HL) {
+    if (srcReg != I8085::HL)
+      buildMI(MBB, MBBI, TargetOpcode::COPY, I8085::HL).addReg(srcReg);
+    buildMI(MBB, MBBI, I8085::ARHL);
+    MI.eraseFromParent();
+    return true;
+  }
+
   if (!getPairRegs(destReg, regLow, regHigh))
     return false;
   if (destReg != srcReg) {
@@ -3209,7 +3270,20 @@ template <> bool I8085ExpandPseudo::expand<I8085::STORE_8_AT_OFFSET_WITH_SP>(Blo
 
   unsigned srcReg = MI.getOperand(0).getReg();
   int64_t offsetToStore = MI.getOperand(1).getImm();
-  
+
+  // Undoc fast path: LDSI + STAX D (3 bytes) vs LXI H+offset; DAD SP; MOV M,r (5+ bytes)
+  if (HasUndoc && offsetToStore >= 0 && offsetToStore <= 255 &&
+      !isPhysRegLive(MBB, MBBI, I8085::DE) &&
+      !isPhysRegLive(MBB, MBBI, I8085::D) &&
+      !isPhysRegLive(MBB, MBBI, I8085::E)) {
+    if (srcReg != I8085::A)
+      buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::A, RegState::Define).addReg(srcReg);
+    buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToStore);
+    buildMI(MBB, MBBI, I8085::STAX).addReg(I8085::DE);
+    MI.eraseFromParent();
+    return true;
+  }
+
   buildMI(MBB, MBBI, I8085::STORE_8)
     .addReg(I8085::SP)
     .addImm(offsetToStore)
@@ -3224,7 +3298,20 @@ template <> bool I8085ExpandPseudo::expand<I8085::STORE_16_AT_OFFSET_WITH_SP>(Bl
 
   unsigned srcReg = MI.getOperand(0).getReg();
   int64_t offsetToStore = MI.getOperand(1).getImm();
-  
+
+  // Undoc fast path: LDSI + SHLX (3 bytes) vs LXI H+offset; DAD SP; MOV M,lo; INX H; MOV M,hi (7+ bytes)
+  if (HasUndoc && offsetToStore >= 0 && offsetToStore <= 255 &&
+      !isPhysRegLive(MBB, MBBI, I8085::DE) &&
+      !isPhysRegLive(MBB, MBBI, I8085::D) &&
+      !isPhysRegLive(MBB, MBBI, I8085::E)) {
+    if (srcReg != I8085::HL)
+      buildMI(MBB, MBBI, TargetOpcode::COPY, I8085::HL).addReg(srcReg);
+    buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToStore);
+    buildMI(MBB, MBBI, I8085::SHLX);
+    MI.eraseFromParent();
+    return true;
+  }
+
   buildMI(MBB, MBBI, I8085::STORE_16)
     .addReg(I8085::SP)
     .addImm(offsetToStore)

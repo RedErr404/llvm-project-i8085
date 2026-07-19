@@ -45,15 +45,20 @@ static Reloc::Model getEffectiveRelocModel(std::optional<Reloc::Model> RM) {
 }
 
 I8085TargetMachine::I8085TargetMachine(const Target &T, const Triple &TT,
-                                   StringRef CPU, StringRef FS,
-                                   const TargetOptions &Options,
-                                   std::optional<Reloc::Model> RM,
-                                   std::optional<CodeModel::Model> CM,
-                                   CodeGenOptLevel OL, bool JIT)
+                                    StringRef CPU, StringRef FS,
+                                    const TargetOptions &Options,
+                                    std::optional<Reloc::Model> RM,
+                                    std::optional<CodeModel::Model> CM,
+                                    CodeGenOptLevel OL, bool JIT)
     : LLVMTargetMachine(T, I8085DataLayout, TT, getCPU(CPU), FS, Options,
                         getEffectiveRelocModel(RM),
                         getEffectiveCodeModel(CM, CodeModel::Small), OL),
-      SubTarget(TT, std::string(getCPU(CPU)), std::string(FS), *this) {
+      SubTarget(TT, std::string(getCPU(CPU)),
+                (TT.str().find("+undoc") != std::string::npos &&
+                 FS.find("+undoc") == std::string::npos)
+                    ? (FS + "+undoc").str()
+                    : FS.str(),
+                *this) {
   this->TLOF = std::make_unique<I8085TargetObjectFile>();
   initAsmInfo();
 }
