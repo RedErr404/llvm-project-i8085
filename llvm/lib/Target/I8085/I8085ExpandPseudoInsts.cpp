@@ -2534,10 +2534,17 @@ template <> bool I8085ExpandPseudo::expand<I8085::RL_16>(Block &MBB, BlockIt MBB
 
   unsigned regLow, regHigh;
 
-  // Undoc fast path: RDEL (1 byte vs ~12 bytes)
+  // Undoc fast path: STC; CMC; RDEL (3 bytes vs ~12 bytes).
+  // RL_16 is a logical shift-left-by-1 (bit 0 must be 0). RDEL rotates the
+  // *incoming* carry into bit 0 (de = (de<<1) | CY), so carry must be cleared
+  // first, otherwise a set carry corrupts bit 0. STC;CMC clears carry without
+  // touching any GPR (verified on i8085-trace: carry=1 + bare RDEL of 0x1357
+  // gives 0x26AF, but the shift result is 0x26AE).
   if (HasUndoc && destReg == I8085::DE) {
     if (srcReg != I8085::DE)
       buildMI(MBB, MBBI, TargetOpcode::COPY, I8085::DE).addReg(srcReg);
+    buildMI(MBB, MBBI, I8085::STC);
+    buildMI(MBB, MBBI, I8085::CMC);
     buildMI(MBB, MBBI, I8085::RDEL);
     MI.eraseFromParent();
     return true;

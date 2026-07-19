@@ -46,8 +46,12 @@ name:            rl16_de
 body:             |
   bb.0:
     liveins: $de
+    ; RL_16 is shift-left-by-1: carry must be cleared (STC;CMC) before RDEL,
+    ; which otherwise rotates the incoming carry into bit 0.
     ; UNDOC-LABEL: name:            rl16_de
-    ; UNDOC: RDEL
+    ; UNDOC: STC
+    ; UNDOC-NEXT: CMC
+    ; UNDOC-NEXT: RDEL
     ; PLAIN-LABEL: name:            rl16_de
     ; PLAIN-NOT: RDEL
     ; PLAIN: RAL
