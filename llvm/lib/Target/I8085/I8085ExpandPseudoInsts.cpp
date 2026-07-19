@@ -2482,10 +2482,12 @@ template <> bool I8085ExpandPseudo::expand<I8085::RL_16>(Block &MBB, BlockIt MBB
       .addReg(srcHigh);
   }
 
-  // Clear carry before rotating through carry so logical shift inserts 0s.
+  // The first RAL consumes carry (RAL Uses SREG), so carry must be defined
+  // here. STC alone suffices: whatever bit it shifts into regLow's bit0 is
+  // discarded by the trailing ANI 254. The old STC;CMC (clear to 0) wasted an
+  // extra CMC to force that masked-away bit to 0.
   buildMI(MBB, MBBI, I8085::STC);
-  buildMI(MBB, MBBI, I8085::CMC);
-  
+
   buildMI(MBB, MBBI, I8085::MOV)
     .addReg(I8085::A,RegState::Define)
     .addReg(regLow);
@@ -2543,9 +2545,11 @@ template <> bool I8085ExpandPseudo::expand<I8085::RR_16>(Block &MBB, BlockIt MBB
       .addReg(srcHigh);
   }
 
-  // Clear carry before rotating through carry so logical shift inserts 0s.
+  // The first RAR consumes carry (RAR Uses SREG), so carry must be defined
+  // here. STC alone suffices: whatever bit it shifts into regHigh's bit7 is
+  // discarded by the trailing ANI 127. The old STC;CMC (clear to 0) wasted an
+  // extra CMC to force that masked-away bit to 0.
   buildMI(MBB, MBBI, I8085::STC);
-  buildMI(MBB, MBBI, I8085::CMC);
 
   buildMI(MBB, MBBI, I8085::MOV)
     .addReg(I8085::A,RegState::Define)

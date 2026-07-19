@@ -256,7 +256,7 @@ body:             |
     liveins: $bc
     ; CHECK-LABEL: name:            rl16_bc
     ; CHECK: STC
-    ; CHECK-NEXT: CMC
+    ; CHECK-NOT: CMC
     ; CHECK: $a = MOV $c
     ; CHECK-NEXT: RAL
     ; CHECK-NEXT: $c = MOV $a
@@ -277,7 +277,7 @@ body:             |
     liveins: $de
     ; CHECK-LABEL: name:            rr16_de
     ; CHECK: STC
-    ; CHECK-NEXT: CMC
+    ; CHECK-NOT: CMC
     ; CHECK: $a = MOV $d
     ; CHECK-NEXT: RAR
     ; CHECK-NEXT: $d = MOV $a
