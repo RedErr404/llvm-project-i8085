@@ -643,6 +643,10 @@ def SHL_8_HI : I8085Pseudo<(outs GR8:$rd), (ins GR8:$rs, I8085Imm8:$n),
                        "SHL_8_HI $rd, $rs, $n", []>;
 def SRL_8_HI : I8085Pseudo<(outs GR8:$rd), (ins GR8:$rs, I8085Imm8:$n),
                        "SRL_8_HI $rd, $rs, $n", []>;
+// ashr i8 by 7 = smear the sign bit across all 8 bits (0x00 / 0xFF). Expands to
+// MOV A,rs; ADD A (CY = bit7); SBB A (A = -CY); MOV rd,A.
+def ASR_8_BY_7 : I8085Pseudo<(outs GR8:$rd), (ins GR8:$rs),
+                       "ASR_8_BY_7 $rd, $rs", []>;
 }
 
 

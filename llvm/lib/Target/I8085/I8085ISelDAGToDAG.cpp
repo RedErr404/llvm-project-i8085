@@ -751,6 +751,14 @@ template <> bool I8085DAGToDAGISel::select<ISD::SRA>(SDNode *N) {
     // arithmetic-shift-right; only variable amounts fall to the runtime loop.
     if (const auto *C = dyn_cast<ConstantSDNode>(RHS)) {
       uint64_t ShiftAmt = C->getZExtValue();
+      // ashr by 7 = sign smear across the whole byte; do it in 2 ALU ops.
+      if (ShiftAmt == 7) {
+        SDValue Ops[] = {LHS};
+        SDNode *Res = CurDAG->getMachineNode(I8085::ASR_8_BY_7, dl, MVT::i8, Ops);
+        ReplaceUses(SDValue(N, 0), SDValue(Res, 0));
+        CurDAG->RemoveDeadNode(N);
+        return true;
+      }
       if (ShiftAmt > 0 && ShiftAmt <= 7) {
         SDValue Result = LHS;
         for (uint64_t i = 0; i < ShiftAmt; ++i) {

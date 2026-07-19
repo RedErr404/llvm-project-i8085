@@ -2937,6 +2937,21 @@ bool I8085ExpandPseudo::expand<I8085::SRL_8_HI>(Block &MBB, BlockIt MBBI) {
   return true;
 }
 
+// ashr i8 by 7: smear the sign bit. ADD A doubles A so CY = old bit7; SBB A then
+// computes A - A - CY = -CY = 0x00 (sign 0) or 0xFF (sign 1).
+template <>
+bool I8085ExpandPseudo::expand<I8085::ASR_8_BY_7>(Block &MBB, BlockIt MBBI) {
+  MachineInstr &MI = *MBBI;
+  unsigned destReg = MI.getOperand(0).getReg();
+  unsigned srcReg = MI.getOperand(1).getReg();
+  buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::A, RegState::Define).addReg(srcReg);
+  buildMI(MBB, MBBI, I8085::ADD).addReg(I8085::A);
+  buildMI(MBB, MBBI, I8085::SBB).addReg(I8085::A);
+  buildMI(MBB, MBBI, I8085::MOV).addReg(destReg, RegState::Define).addReg(I8085::A);
+  MI.eraseFromParent();
+  return true;
+}
+
 template <> bool I8085ExpandPseudo::expand<I8085::JMP_16_IF>(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
   
@@ -3495,6 +3510,7 @@ bool I8085ExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
     EXPAND(I8085::ASR_8);
     EXPAND(I8085::SHL_8_HI);
     EXPAND(I8085::SRL_8_HI);
+    EXPAND(I8085::ASR_8_BY_7);
     EXPAND(I8085::INC_MEM_8_WITH_IMM_ADDR);
     EXPAND(I8085::DEC_MEM_8_WITH_IMM_ADDR);
     EXPAND(I8085::INC_MEM_8_ADDR_CONTENT);

@@ -58,11 +58,22 @@ define i8 @srl_i8_5(i8 %x) {
   ret i8 %r
 }
 
-; ashr by 5/6/7 just needs to stop being a runtime loop (straight-line unroll).
+; ashr by 5/6 unrolls straight-line; ashr by 7 is the sign smeared across the
+; whole byte, done branchlessly with ADD A (CY = sign bit) then SBB A (-CY =
+; 0x00 / 0xFF).
 define i8 @sra_i8_7(i8 %x) {
 ; CHECK-LABEL: sra_i8_7:
+; CHECK:      MOV A,
+; CHECK-NEXT: ADD A
+; CHECK-NEXT: SBB A
+  %r = ashr i8 %x, 7
+  ret i8 %r
+}
+
+define i8 @sra_i8_6(i8 %x) {
+; CHECK-LABEL: sra_i8_6:
 ; CHECK-NOT:  JP
 ; CHECK:      RAR
-  %r = ashr i8 %x, 7
+  %r = ashr i8 %x, 6
   ret i8 %r
 }
