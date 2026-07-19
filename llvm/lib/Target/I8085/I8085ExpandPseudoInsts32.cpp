@@ -725,10 +725,10 @@ template <> bool I8085ExpandPseudo32::expand<I8085::RR_32>(Block &MBB, BlockIt M
     }
   }
 
-  // Clear carry before rotate-through-carry sequence.
-  // ORA A is a single-instruction way to clear CY (A = A | A, CY = 0).
-  buildMI(MBB, MBBI, I8085::ORA).addReg(I8085::A);
-
+  // No explicit carry-clear here: emitScratchAddr's `DAD SP` (right below)
+  // overwrites CY before the first RAR reads it, so the byte-3 bit that RAR
+  // pulls in from CY is arbitrary - the trailing `ANI 127` mask below clears
+  // exactly that bit. (An `ORA A` here would be dead AND read an undefined A.)
   emitScratchAddr(MBB, MBBI, destReg, 3);
   for(int i=3;i>-1;i--){
     buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::A, RegState::Define);
@@ -1047,10 +1047,10 @@ template <> bool I8085ExpandPseudo32::expand<I8085::RL_32>(Block &MBB, BlockIt M
     }
   }
 
-  // Clear carry before rotate-through-carry sequence.
-  // ORA A is a single-instruction way to clear CY (A = A | A, CY = 0).
-  buildMI(MBB, MBBI, I8085::ORA).addReg(I8085::A);
-
+  // No explicit carry-clear here: emitScratchAddr's `DAD SP` (right below)
+  // overwrites CY before the first RAL reads it, so the byte-0 bit that RAL
+  // pulls in from CY is arbitrary - the trailing `ANI 254` mask below clears
+  // exactly that bit. (An `ORA A` here would be dead AND read an undefined A.)
   emitScratchAddr(MBB, MBBI, destReg, 0);
   for(int i=0;i<4;i++){
     buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::A, RegState::Define);
@@ -1375,8 +1375,12 @@ template <> bool I8085ExpandPseudo32::expand<I8085::PACK_16_TO_32>(Block &MBB, B
 
   auto copyHLToPair = [&](unsigned Pair) {
     unsigned PairLow = 0, PairHigh = 0;
-    assert(getPairRegs(Pair, PairLow, PairHigh) &&
-           "expected 16-bit pair register");
+    // NOTE: getPairRegs has the side effect of filling PairLow/PairHigh via
+    // out-params - it must NOT live inside assert(), which is compiled out in
+    // release builds (leaving the temps as $noreg and corrupting the store).
+    bool GotPair = getPairRegs(Pair, PairLow, PairHigh);
+    assert(GotPair && "expected 16-bit pair register");
+    (void)GotPair;
     buildMI(MBB, MBBI, I8085::MOV)
         .addReg(PairLow, RegState::Define)
         .addReg(I8085::L);

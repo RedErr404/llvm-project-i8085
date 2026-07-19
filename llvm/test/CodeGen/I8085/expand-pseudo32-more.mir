@@ -262,7 +262,7 @@ body:             |
   bb.0:
     liveins: $iax
     ; CHECK-LABEL: name:            rl32_iax
-    ; CHECK: ORA $a
+    ; CHECK-NOT: ORA $a
     ; CHECK: RAL
     ; CHECK: RAL
     ; CHECK: RAL
@@ -278,7 +278,7 @@ body:             |
   bb.0:
     liveins: $iax
     ; CHECK-LABEL: name:            rr32_iax
-    ; CHECK: ORA $a
+    ; CHECK-NOT: ORA $a
     ; CHECK: RAR
     ; CHECK: RAR
     ; CHECK: RAR
