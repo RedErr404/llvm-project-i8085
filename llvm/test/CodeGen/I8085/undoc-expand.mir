@@ -1,0 +1,56 @@
+# RUN: llc -O0 -mattr=+undoc -run-pass=i8085-expand-pseudo %s -o - | FileCheck %s --check-prefix=UNDOC
+# RUN: llc -O0 -run-pass=i8085-expand-pseudo %s -o - | FileCheck %s --check-prefix=PLAIN
+
+# Undocumented-instruction expansion fast paths. With +undoc the 16-bit
+# subtract (dest HL, src BC), arithmetic right shift (dest HL) and rotate-left
+# (dest DE) collapse to the single-byte DSUB / ARHL / RDEL opcodes. Without
+# +undoc they must expand to the portable multi-instruction sequences and must
+# NOT mention any undocumented opcode.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @sub16_hl_bc() { ret void }
+  define void @asr16_hl() { ret void }
+  define void @rl16_de() { ret void }
+...
+---
+name:            sub16_hl_bc
+body:             |
+  bb.0:
+    liveins: $hl, $bc
+    ; UNDOC-LABEL: name:            sub16_hl_bc
+    ; UNDOC: DSUB
+    ; UNDOC-NOT: SUB $c
+    ; PLAIN-LABEL: name:            sub16_hl_bc
+    ; PLAIN-NOT: DSUB
+    ; PLAIN: SUB $c
+    $hl = SUB_16 $hl, $bc, implicit-def $sreg, implicit-def $a
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            asr16_hl
+body:             |
+  bb.0:
+    liveins: $hl
+    ; UNDOC-LABEL: name:            asr16_hl
+    ; UNDOC: ARHL
+    ; UNDOC-NOT: RLC
+    ; PLAIN-LABEL: name:            asr16_hl
+    ; PLAIN-NOT: ARHL
+    ; PLAIN: RLC
+    $hl = ASR_16 $hl, implicit-def $sreg, implicit-def $a, implicit $a
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            rl16_de
+body:             |
+  bb.0:
+    liveins: $de
+    ; UNDOC-LABEL: name:            rl16_de
+    ; UNDOC: RDEL
+    ; PLAIN-LABEL: name:            rl16_de
+    ; PLAIN-NOT: RDEL
+    ; PLAIN: RAL
+    $de = RL_16 $de, implicit-def $sreg, implicit-def $a, implicit $a
+    RET implicit $sp, implicit-def $sp
+...

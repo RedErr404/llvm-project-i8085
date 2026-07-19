@@ -606,6 +606,7 @@ public:
 
     bool Changed = false;
     const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
+    const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
 
     for (auto It = MBB.begin(); It != MBB.end(); ++It) {
       // Pattern: MOV A, loReg; STAX D; INX D; MOV A, hiReg; STAX D
@@ -641,20 +642,46 @@ public:
       if (!ValidPair)
         continue;
 
-      // Replace the sequence: MOV A,lo; STAX D; INX D; MOV A,hi; STAX D
-      // with: MOV L, loReg; MOV H, hiReg; SHLX
-      // Skip optional trailing DCX D
-      It = MBB.erase(It, N4); // erase [It, N4) keeping It at N4
-      BuildMI(MBB, It, It->getDebugLoc(), TII->get(I8085::MOV))
-          .addReg(I8085::L, RegState::Define).addReg(LoReg);
-      BuildMI(MBB, It, It->getDebugLoc(), TII->get(I8085::MOV))
-          .addReg(I8085::H, RegState::Define).addReg(HiReg);
-      BuildMI(MBB, It, It->getDebugLoc(), TII->get(I8085::SHLX));
+      // The original stores lo@[DE], hi@[DE+1] and leaves DE = orig+1. The SHLX
+      // replacement stores the same bytes but leaves DE = orig, and it clobbers
+      // HL. So it is only safe when:
+      //   * HL is dead afterwards (unless the stored pair IS HL, in which case
+      //     MOV L,L/MOV H,H preserve it), and
+      //   * DE is restored to orig — either a trailing DCX D follows (which we
+      //     then delete), or DE is dead afterwards.
+      // A trailing DCX D restores DE to its original value in the pre-peephole code.
+      auto AfterN4 = std::next(N4);
+      bool HasDcx = AfterN4 != MBB.end() && AfterN4->getOpcode() == I8085::DCX &&
+                    AfterN4->getOperand(0).isReg() &&
+                    AfterN4->getOperand(0).getReg() == I8085::DE;
 
-      // Remove optional DCX D that follows (restores DE, but SHLX doesn't modify DE)
-      if (It != MBB.end() && It->getOpcode() == I8085::DCX &&
-          It->getOperand(0).isReg() && It->getOperand(0).getReg() == I8085::DE)
-        It = MBB.erase(It);
+      // Liveness immediately after N4 (the second STAX D).
+      LivePhysRegs Live(*TRI);
+      Live.addLiveOuts(MBB);
+      for (MachineInstr &MI : llvm::reverse(MBB)) {
+        if (&MI == &*N4)
+          break;
+        Live.stepBackward(MI);
+      }
+
+      bool PairIsHL = (LoReg == I8085::L && HiReg == I8085::H);
+      if (!PairIsHL && (Live.contains(I8085::H) || Live.contains(I8085::L)))
+        continue;
+      if (!HasDcx && (Live.contains(I8085::D) || Live.contains(I8085::E)))
+        continue;
+
+      // Replace MOV A,lo; STAX D; INX D; MOV A,hi; STAX D  (erase It..N4
+      // inclusive; the range is half-open so pass std::next(N4)) with
+      // MOV L,lo; MOV H,hi; SHLX, then drop the now-redundant trailing DCX D.
+      It = MBB.erase(It, std::next(N4));
+      BuildMI(MBB, It, DebugLoc(), TII->get(I8085::MOV))
+          .addReg(I8085::L, RegState::Define).addReg(LoReg);
+      BuildMI(MBB, It, DebugLoc(), TII->get(I8085::MOV))
+          .addReg(I8085::H, RegState::Define).addReg(HiReg);
+      BuildMI(MBB, It, DebugLoc(), TII->get(I8085::SHLX));
+
+      if (HasDcx)
+        MBB.erase(It); // It now points at the trailing DCX D
 
       Changed = true;
       break; // Restart from beginning after structural change

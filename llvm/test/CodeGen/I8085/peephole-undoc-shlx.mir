@@ -1,0 +1,73 @@
+# RUN: llc -mattr=+undoc -run-pass=i8085-peephole %s -o - | FileCheck %s
+
+# Storing a 16-bit pair through the DE pointer:
+#   MOV A,lo ; STAX D ; INX D ; MOV A,hi ; STAX D [; DCX D]
+# collapses to MOV L,lo ; MOV H,hi ; SHLX under +undoc. SHLX writes both bytes
+# through DE and leaves DE unchanged, so a trailing DCX D (which the original
+# used to restore DE) is dropped. The rewrite clobbers HL and changes DE's
+# final value, so it must not fire when HL is live afterwards, or when DE is
+# live afterwards without a DCX D to delete.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @store_bc_fires() { ret void }
+  define void @hl_live_blocks() { ret void }
+  define void @de_live_no_dcx_blocks() { ret void }
+...
+---
+name:            store_bc_fires
+body:             |
+  bb.0:
+    liveins: $bc, $de
+    ; CHECK-LABEL: name: store_bc_fires
+    ; The whole store folds to two MOVs + SHLX. No stray STAX must survive
+    ; (that was the low-byte-clobbering miscompile), and the DCX D is dropped.
+    ; CHECK: $l = MOV $c
+    ; CHECK-NEXT: $h = MOV $b
+    ; CHECK-NEXT: SHLX
+    ; CHECK-NOT: STAX
+    ; CHECK-NOT: DCX
+    $a = MOV $c
+    STAX $de, implicit $a
+    $de = INX
+    $a = MOV $b
+    STAX $de, implicit $a
+    $de = DCX
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            hl_live_blocks
+body:             |
+  bb.0:
+    liveins: $bc, $de
+    ; HL is read after the store, but the SHLX rewrite would clobber it, so the
+    ; peephole must leave the STAX sequence intact.
+    ; CHECK-LABEL: name: hl_live_blocks
+    ; CHECK-NOT: SHLX
+    ; CHECK: STAX
+    $a = MOV $c
+    STAX $de, implicit $a
+    $de = INX
+    $a = MOV $b
+    STAX $de, implicit $a
+    $a = MOV $l
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            de_live_no_dcx_blocks
+body:             |
+  bb.0:
+    liveins: $bc, $de
+    ; No trailing DCX D and DE is read afterwards. SHLX leaves DE = orig while
+    ; the STAX/INX sequence leaves DE = orig+1, so the rewrite must not fire.
+    ; CHECK-LABEL: name: de_live_no_dcx_blocks
+    ; CHECK-NOT: SHLX
+    ; CHECK: STAX
+    $a = MOV $c
+    STAX $de, implicit $a
+    $de = INX
+    $a = MOV $b
+    STAX $de, implicit $a
+    $a = MOV $e
+    RET implicit $sp, implicit-def $sp
+...
