@@ -276,6 +276,14 @@ def INR : F3<0b0,(outs GR8: $rd), (ins GR8: $rs), "INR $rs", []>;
 
 }
 
+// Memory-form increment/decrement: read-modify-write the byte at (HL) in a
+// single 1-byte instruction. Like the register INR/DCR they set Z,S,P,AC and
+// PRESERVE CY. Opcodes 0x34 / 0x35.
+let Uses=[H,L], Defs=[SREG], mayLoad = 1, mayStore = 1 in {
+def INR_M : F1<0b00110100,(outs),(ins),"INR M",[]>;
+def DCR_M : F1<0b00110101,(outs),(ins),"DCR M",[]>;
+}
+
 //===----------------------------------------------------------------------===//
 //===----------------------------------------------------------------------===//
 // I8085 Logical Instructions list
@@ -604,7 +612,28 @@ let Defs=[HL], mayStore = 1 in def STORE_8_WITH_IMM_ADDR : I8085Pseudo<(outs),
 let Defs=[HL], mayStore = 1 in def STORE_16_WITH_IMM_ADDR : I8085Pseudo<(outs),
                        (ins imm16Addr: $addr, GR16BD: $src),
                        "STORE_16_ADDR $addr, $src", []>;
-}  
+}
+
+// In-place ++/-- of an i8 at a fixed (global/immediate) address. Expands to
+// `LXI H, addr ; INR M|DCR M`. Defs HL (address pointer) and SREG (INR/DCR
+// clobber Z,S,P,AC).
+let Defs=[HL, SREG], mayLoad = 1, mayStore = 1 in {
+def INC_MEM_8_WITH_IMM_ADDR : I8085Pseudo<(outs), (ins imm16Addr: $addr),
+                       "INC_MEM_8_ADDR $addr", []>;
+def DEC_MEM_8_WITH_IMM_ADDR : I8085Pseudo<(outs), (ins imm16Addr: $addr),
+                       "DEC_MEM_8_ADDR $addr", []>;
+}
+
+// Branchless i8 constant shift by a large amount k (5..7). A shift by k is a
+// circular rotate the *short* way (8-k positions) followed by masking off the
+// bits that wrapped in. rd = result, rs = source, n = shift amount. Clobber A
+// (scratch) and SREG (rotate/ANI set flags).
+let Defs=[SREG, A] in {
+def SHL_8_HI : I8085Pseudo<(outs GR8:$rd), (ins GR8:$rs, I8085Imm8:$n),
+                       "SHL_8_HI $rd, $rs, $n", []>;
+def SRL_8_HI : I8085Pseudo<(outs GR8:$rd), (ins GR8:$rs, I8085Imm8:$n),
+                       "SRL_8_HI $rd, $rs, $n", []>;
+}
 
 
 def addressTarget : Operand<OtherVT> {

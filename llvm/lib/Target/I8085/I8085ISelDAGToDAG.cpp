@@ -657,6 +657,14 @@ template <> bool I8085DAGToDAGISel::select<ISD::SHL>(SDNode *N) {
         CurDAG->RemoveDeadNode(N);
         return true;
       }
+      // Amounts 5..7: branchless rotate-the-short-way + mask (no runtime loop).
+      if (ShiftAmt >= 5 && ShiftAmt <= 7) {
+        SDValue Ops[] = {LHS, CurDAG->getTargetConstant(ShiftAmt, dl, MVT::i8)};
+        SDNode *Res = CurDAG->getMachineNode(I8085::SHL_8_HI, dl, MVT::i8, Ops);
+        ReplaceUses(SDValue(N, 0), SDValue(Res, 0));
+        CurDAG->RemoveDeadNode(N);
+        return true;
+      }
     }
     unsigned Opc=I8085::SHL_8;
     SDValue Ops[] = {LHS,RHS};
@@ -739,10 +747,11 @@ template <> bool I8085DAGToDAGISel::select<ISD::SRA>(SDNode *N) {
     return false; // Variable shifts handled by LowerOperation libcall.
   }
   if(LHS.getSimpleValueType() == MVT::i8 && RHS.getSimpleValueType() == MVT::i8){
-    // Handle constant shift amounts with inline shifts (up to 4)
+    // Handle all constant shift amounts (1..7) with a straight-line unrolled
+    // arithmetic-shift-right; only variable amounts fall to the runtime loop.
     if (const auto *C = dyn_cast<ConstantSDNode>(RHS)) {
       uint64_t ShiftAmt = C->getZExtValue();
-      if (ShiftAmt > 0 && ShiftAmt <= 4) {
+      if (ShiftAmt > 0 && ShiftAmt <= 7) {
         SDValue Result = LHS;
         for (uint64_t i = 0; i < ShiftAmt; ++i) {
           SDValue Ops[] = {Result};
@@ -839,6 +848,14 @@ template <> bool I8085DAGToDAGISel::select<ISD::SRL>(SDNode *N) {
           Result = SDValue(CurDAG->getMachineNode(I8085::RR_8, dl, MVT::i8, Ops), 0);
         }
         ReplaceUses(SDValue(N, 0), Result);
+        CurDAG->RemoveDeadNode(N);
+        return true;
+      }
+      // Amounts 5..7: branchless rotate-the-short-way + mask (no runtime loop).
+      if (ShiftAmt >= 5 && ShiftAmt <= 7) {
+        SDValue Ops[] = {LHS, CurDAG->getTargetConstant(ShiftAmt, dl, MVT::i8)};
+        SDNode *Res = CurDAG->getMachineNode(I8085::SRL_8_HI, dl, MVT::i8, Ops);
+        ReplaceUses(SDValue(N, 0), SDValue(Res, 0));
         CurDAG->RemoveDeadNode(N);
         return true;
       }
@@ -1235,6 +1252,76 @@ template <> bool I8085DAGToDAGISel::select<ISD::STORE>(SDNode *N) {
     return false;
 
   SDValue BasePtr = ST->getBasePtr();
+
+  // Memory ++/-- idiom: store(add/sub(load Addr, 1), Addr) at a fixed
+  // (global/immediate) address -> INR M / DCR M. These read-modify-write the
+  // byte at (HL) in one instruction and set Z,S,P,AC while PRESERVING CY,
+  // exactly like the register INR/DCR the backend already models. Valid only
+  // when the loaded byte feeds nothing but this +/-1, the sum feeds nothing but
+  // this store, and the store consumes the load's chain (so no aliasing memory
+  // access sits between the load and the store).
+  if (MemVT == MVT::i8 && ISD::isNormalStore(N) && ST->isSimple()) {
+    SDValue Val = ST->getValue();
+    unsigned VOpc = Val.getOpcode();
+    if ((VOpc == ISD::ADD || VOpc == ISD::SUB) && Val.hasOneUse()) {
+      auto *Step = dyn_cast<ConstantSDNode>(Val.getOperand(1));
+      auto *Ld = dyn_cast<LoadSDNode>(Val.getOperand(0));
+      // The step is an i8 constant. DAGCombine canonicalizes `sub x,1` into
+      // `add x,255`, so +1/-255 mean increment and -1/+255 mean decrement
+      // (mod 256 these are exactly x+1 / x-1).
+      bool IsInc = false, IsDec = false;
+      if (Step) {
+        uint64_t S = Step->getZExtValue() & 0xFF;
+        if (VOpc == ISD::ADD) {
+          IsInc = (S == 1);
+          IsDec = (S == 0xFF);
+        } else { // SUB
+          IsDec = (S == 1);
+          IsInc = (S == 0xFF);
+        }
+      }
+      if ((IsInc || IsDec) && Ld && Ld->isSimple() &&
+          ISD::isNormalLoad(Ld) && Ld->getMemoryVT() == MVT::i8 &&
+          Val.getOperand(0).hasOneUse() && Ld->getBasePtr() == BasePtr &&
+          ST->getChain() == SDValue(Ld, 1)) {
+        // Resolve the fixed address; only globals / immediate symbols qualify.
+        SDValue Addr = BasePtr;
+        unsigned BaseOpc = Addr.getOpcode();
+        if (BaseOpc == I8085ISD::WRAPPER) {
+          Addr = Addr.getOperand(0);
+          BaseOpc = Addr.getOpcode();
+        }
+        SDLoc DL(N);
+        auto PtrVT = getTargetLowering()->getPointerTy(CurDAG->getDataLayout());
+        bool Fixed = true;
+        if (BaseOpc == ISD::GlobalAddress) {
+          const auto *GA = cast<GlobalAddressSDNode>(Addr);
+          Addr = CurDAG->getTargetGlobalAddress(GA->getGlobal(), DL, PtrVT,
+                                                GA->getOffset());
+        } else if (BaseOpc == ISD::ExternalSymbol) {
+          const auto *ES = cast<ExternalSymbolSDNode>(Addr);
+          Addr = CurDAG->getTargetExternalSymbol(ES->getSymbol(), PtrVT);
+        } else if (BaseOpc != ISD::TargetGlobalAddress &&
+                   BaseOpc != ISD::TargetExternalSymbol) {
+          Fixed = false;
+        }
+        if (Fixed) {
+          unsigned Opc = IsInc ? I8085::INC_MEM_8_WITH_IMM_ADDR
+                                : I8085::DEC_MEM_8_WITH_IMM_ADDR;
+          // Chain from the load's input: INC_MEM/DEC_MEM subsumes both the load
+          // and the store, so the load node is left dead and cleaned up.
+          SDValue Ops[] = {Addr, Ld->getChain()};
+          SDNode *ResNode = CurDAG->getMachineNode(Opc, DL, MVT::Other, Ops);
+          CurDAG->setNodeMemRefs(cast<MachineSDNode>(ResNode),
+                                 {Ld->getMemOperand(), ST->getMemOperand()});
+          ReplaceUses(SDValue(N, 0), SDValue(ResNode, 0));
+          CurDAG->RemoveDeadNode(N);
+          return true;
+        }
+      }
+    }
+  }
+
   if (const auto *FI = dyn_cast<FrameIndexSDNode>(BasePtr)) {
     SDLoc DL(N);
     auto PtrVT = getTargetLowering()->getPointerTy(CurDAG->getDataLayout());

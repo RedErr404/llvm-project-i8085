@@ -2839,6 +2839,67 @@ template <> bool I8085ExpandPseudo::expand<I8085::ASR_8>(Block &MBB, BlockIt MBB
   return true;
 }
 
+// In-place ++ of a byte at a fixed address: LXI H, addr ; INR M.
+template <>
+bool I8085ExpandPseudo::expand<I8085::INC_MEM_8_WITH_IMM_ADDR>(Block &MBB, BlockIt MBBI) {
+  MachineInstr &MI = *MBBI;
+  const MachineOperand &AddrMO = MI.getOperand(0);
+  MachineInstrBuilder Addr =
+      buildMI(MBB, MBBI, I8085::LXI).addReg(I8085::HL, RegState::Define);
+  addAddrOperand(Addr, AddrMO);
+  buildMI(MBB, MBBI, I8085::INR_M);
+  MI.eraseFromParent();
+  return true;
+}
+
+// In-place -- of a byte at a fixed address: LXI H, addr ; DCR M.
+template <>
+bool I8085ExpandPseudo::expand<I8085::DEC_MEM_8_WITH_IMM_ADDR>(Block &MBB, BlockIt MBBI) {
+  MachineInstr &MI = *MBBI;
+  const MachineOperand &AddrMO = MI.getOperand(0);
+  MachineInstrBuilder Addr =
+      buildMI(MBB, MBBI, I8085::LXI).addReg(I8085::HL, RegState::Define);
+  addAddrOperand(Addr, AddrMO);
+  buildMI(MBB, MBBI, I8085::DCR_M);
+  MI.eraseFromParent();
+  return true;
+}
+
+// shl i8 by n (5..7) == circular rotate right by (8-n), then clear the low n
+// bits that wrapped in. Rotating the short way is 8-n RRCs (<=3) instead of a
+// runtime loop.
+template <>
+bool I8085ExpandPseudo::expand<I8085::SHL_8_HI>(Block &MBB, BlockIt MBBI) {
+  MachineInstr &MI = *MBBI;
+  unsigned destReg = MI.getOperand(0).getReg();
+  unsigned srcReg = MI.getOperand(1).getReg();
+  unsigned n = MI.getOperand(2).getImm();
+  buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::A, RegState::Define).addReg(srcReg);
+  for (unsigned i = 0; i < 8 - n; ++i)
+    buildMI(MBB, MBBI, I8085::RRC);
+  buildMI(MBB, MBBI, I8085::ANI).addImm((0xFF << n) & 0xFF);
+  buildMI(MBB, MBBI, I8085::MOV).addReg(destReg, RegState::Define).addReg(I8085::A);
+  MI.eraseFromParent();
+  return true;
+}
+
+// lshr i8 by n (5..7) == circular rotate left by (8-n), then clear the high n
+// bits that wrapped in.
+template <>
+bool I8085ExpandPseudo::expand<I8085::SRL_8_HI>(Block &MBB, BlockIt MBBI) {
+  MachineInstr &MI = *MBBI;
+  unsigned destReg = MI.getOperand(0).getReg();
+  unsigned srcReg = MI.getOperand(1).getReg();
+  unsigned n = MI.getOperand(2).getImm();
+  buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::A, RegState::Define).addReg(srcReg);
+  for (unsigned i = 0; i < 8 - n; ++i)
+    buildMI(MBB, MBBI, I8085::RLC);
+  buildMI(MBB, MBBI, I8085::ANI).addImm(0xFF >> n);
+  buildMI(MBB, MBBI, I8085::MOV).addReg(destReg, RegState::Define).addReg(I8085::A);
+  MI.eraseFromParent();
+  return true;
+}
+
 template <> bool I8085ExpandPseudo::expand<I8085::JMP_16_IF>(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
   
@@ -3395,6 +3456,10 @@ bool I8085ExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
     EXPAND(I8085::RL_8);
     EXPAND(I8085::RR_8);
     EXPAND(I8085::ASR_8);
+    EXPAND(I8085::SHL_8_HI);
+    EXPAND(I8085::SRL_8_HI);
+    EXPAND(I8085::INC_MEM_8_WITH_IMM_ADDR);
+    EXPAND(I8085::DEC_MEM_8_WITH_IMM_ADDR);
     EXPAND(I8085::STORE_16_ADDR_CONTENT);
     EXPAND(I8085::STORE_8_ADDR_CONTENT);
     EXPAND(I8085::CALL_INDIRECT);

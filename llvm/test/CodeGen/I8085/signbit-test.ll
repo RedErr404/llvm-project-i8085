@@ -6,8 +6,8 @@
 ; Test if i8 is negative (shift right 7 to get sign bit)
 define i8 @is_negative_i8(i8 %x) {
 ; CHECK-LABEL: is_negative_i8:
-; CHECK: RRC
-; CHECK: ANI 127
+; CHECK: RLC
+; CHECK: ANI 1
 ; CHECK: RET
 entry:
   %cmp = icmp slt i8 %x, 0
@@ -18,8 +18,8 @@ entry:
 ; Test high bit of i8 via mask and compare
 define i8 @test_high_bit_i8(i8 %x) {
 ; CHECK-LABEL: test_high_bit_i8:
-; CHECK: RRC
-; CHECK: ANI 127
+; CHECK: RLC
+; CHECK: ANI 1
 ; CHECK: RET
 entry:
   %masked = and i8 %x, 128
