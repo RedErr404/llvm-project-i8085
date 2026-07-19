@@ -1170,6 +1170,23 @@ bool I8085ExpandPseudo::expand<I8085::LOAD_8_WITH_ADDR>(Block &MBB, BlockIt MBBI
   unsigned baseReg = MI.getOperand(1).getReg();
   int64_t offsetToLoad = MI.getOperand(2).getImm();
 
+  // Undoc fast path: LDSI + LDAX D (3 bytes) vs LXI H,offset; DAD SP; MOV r,M (5+ bytes).
+  // No flag clobber, no HL clobber.
+  if (HasUndoc && baseReg == I8085::SP && offsetToLoad >= 0 && offsetToLoad <= 255) {
+    bool DEUsed = isPhysRegLive(MBB, MBBI, I8085::DE) ||
+                  isPhysRegLive(MBB, MBBI, I8085::D) ||
+                  isPhysRegLive(MBB, MBBI, I8085::E);
+    bool DEOk = !DEUsed || destReg == I8085::D || destReg == I8085::E;
+    if (DEOk) {
+      buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToLoad);
+      buildMI(MBB, MBBI, I8085::LDAX).addReg(I8085::DE);
+      if (destReg != I8085::A)
+        buildMI(MBB, MBBI, I8085::MOV).addReg(destReg, RegState::Define).addReg(I8085::A);
+      MI.eraseFromParent();
+      return true;
+    }
+  }
+
   // When destReg is H or L and the base requires LXI+DAD (base != HL),
   // the "other" sub-register of HL is clobbered by the address computation.
   // If that other sub-register is live, we must preserve it by loading via A
@@ -3272,16 +3289,21 @@ template <> bool I8085ExpandPseudo::expand<I8085::STORE_8_AT_OFFSET_WITH_SP>(Blo
   int64_t offsetToStore = MI.getOperand(1).getImm();
 
   // Undoc fast path: LDSI + STAX D (3 bytes) vs LXI H+offset; DAD SP; MOV M,r (5+ bytes)
-  if (HasUndoc && offsetToStore >= 0 && offsetToStore <= 255 &&
-      !isPhysRegLive(MBB, MBBI, I8085::DE) &&
-      !isPhysRegLive(MBB, MBBI, I8085::D) &&
-      !isPhysRegLive(MBB, MBBI, I8085::E)) {
-    if (srcReg != I8085::A)
-      buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::A, RegState::Define).addReg(srcReg);
-    buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToStore);
-    buildMI(MBB, MBBI, I8085::STAX).addReg(I8085::DE);
-    MI.eraseFromParent();
-    return true;
+  // LDSI clobbers DE. Safe if: DE is dead, OR we're writing D/E (copied to A first).
+  if (HasUndoc && offsetToStore >= 0 && offsetToStore <= 255) {
+    bool DEUsed = isPhysRegLive(MBB, MBBI, I8085::DE) ||
+                  isPhysRegLive(MBB, MBBI, I8085::D) ||
+                  isPhysRegLive(MBB, MBBI, I8085::E);
+    // If the store source IS D or E, we copy it to A before LDSI, so DE is safe.
+    bool DEOk = !DEUsed || srcReg == I8085::D || srcReg == I8085::E;
+    if (DEOk) {
+      if (srcReg != I8085::A)
+        buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::A, RegState::Define).addReg(srcReg);
+      buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToStore);
+      buildMI(MBB, MBBI, I8085::STAX).addReg(I8085::DE);
+      MI.eraseFromParent();
+      return true;
+    }
   }
 
   buildMI(MBB, MBBI, I8085::STORE_8)
@@ -3300,16 +3322,20 @@ template <> bool I8085ExpandPseudo::expand<I8085::STORE_16_AT_OFFSET_WITH_SP>(Bl
   int64_t offsetToStore = MI.getOperand(1).getImm();
 
   // Undoc fast path: LDSI + SHLX (3 bytes) vs LXI H+offset; DAD SP; MOV M,lo; INX H; MOV M,hi (7+ bytes)
-  if (HasUndoc && offsetToStore >= 0 && offsetToStore <= 255 &&
-      !isPhysRegLive(MBB, MBBI, I8085::DE) &&
-      !isPhysRegLive(MBB, MBBI, I8085::D) &&
-      !isPhysRegLive(MBB, MBBI, I8085::E)) {
-    if (srcReg != I8085::HL)
-      buildMI(MBB, MBBI, TargetOpcode::COPY, I8085::HL).addReg(srcReg);
-    buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToStore);
-    buildMI(MBB, MBBI, I8085::SHLX);
-    MI.eraseFromParent();
-    return true;
+  // LDSI clobbers DE. Safe if: DE is dead, OR srcReg IS DE (copied to HL first).
+  if (HasUndoc && offsetToStore >= 0 && offsetToStore <= 255) {
+    bool DEUsed = isPhysRegLive(MBB, MBBI, I8085::DE) ||
+                  isPhysRegLive(MBB, MBBI, I8085::D) ||
+                  isPhysRegLive(MBB, MBBI, I8085::E);
+    bool DEOk = !DEUsed || srcReg == I8085::DE;
+    if (DEOk) {
+      if (srcReg != I8085::HL)
+        buildMI(MBB, MBBI, TargetOpcode::COPY, I8085::HL).addReg(srcReg);
+      buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToStore);
+      buildMI(MBB, MBBI, I8085::SHLX);
+      MI.eraseFromParent();
+      return true;
+    }
   }
 
   buildMI(MBB, MBBI, I8085::STORE_16)
