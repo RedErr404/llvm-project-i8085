@@ -69,7 +69,11 @@ static MCAsmInfo *createI8085MCAsmInfo(const MCRegisterInfo &MRI,
 
 static MCSubtargetInfo *createI8085MCSubtargetInfo(const Triple &TT,
                                                  StringRef CPU, StringRef FS) {
-  return createI8085MCSubtargetInfoImpl(TT, CPU, /*TuneCPU*/ CPU, FS);
+  std::string FullFS = FS.str();
+  std::string TripleStr = TT.str();
+  if (TripleStr.find("+undoc") != std::string::npos && FullFS.find("+undoc") == std::string::npos)
+    FullFS += "+undoc";
+  return createI8085MCSubtargetInfoImpl(TT, CPU, /*TuneCPU*/ CPU, FullFS);
 }
 
 static MCInstPrinter *createI8085MCInstPrinter(const Triple &T,

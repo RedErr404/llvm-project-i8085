@@ -59,6 +59,8 @@ public:
   I8085Subtarget &initializeSubtargetDependencies(StringRef CPU, StringRef FS,
                                                 const TargetMachine &TM);
 
+  bool hasUndocumented() const { return HasUndocumented; }
+
   /// Gets the ELF architecture for the e_flags field
   /// of an ELF object file.
   unsigned getELFArch() const {
@@ -70,6 +72,8 @@ public:
 private:
   /// The ELF e_flags architecture.
   unsigned ELFArch;
+
+  bool HasUndocumented = false;
 
   I8085InstrInfo InstrInfo;
   I8085FrameLowering FrameLowering;

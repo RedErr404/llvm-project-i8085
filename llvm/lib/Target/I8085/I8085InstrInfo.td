@@ -841,6 +841,44 @@ def BSWAP16 : I8085Pseudo<(outs GR16: $dst),
                           "BSWAP16 $dst, $src",
                           [(set i16: $dst, (bswap i16: $src))]>;
 
+//===----------------------------------------------------------------------===//
+// Undocumented 8085 Instructions (gated by +undoc / HasUndoc predicate).
+// These are real silicon opcodes, discovered by Dehnhardt & Sorensen (1979).
+// They are only available when the +undoc target feature is enabled.
+//===----------------------------------------------------------------------===//
+
+let Predicates = [HasUndoc] in {
+
+  // DSUB: HL = HL - BC, sets all flags (Z,S,P,CY,AC,V,X5)
+  let Defs=[HL,SREG], Uses=[HL,BC] in
+    def DSUB : F1<0b00001000,(outs), (ins), "DSUB", []>;
+
+  // ARHL: Arithmetic right shift HL by 1, CY = L[0]
+  let Defs=[HL,SREG], Uses=[HL] in
+    def ARHL : F1<0b00010000,(outs), (ins), "ARHL", []>;
+
+  // RDEL: Rotate DE left through carry, sets CY,V
+  let Defs=[DE,SREG], Uses=[DE,SREG] in
+    def RDEL : F1<0b00011000,(outs), (ins), "RDEL", []>;
+
+  // LDHI: DE = HL + imm8, no flags
+  let Defs=[DE], Uses=[HL] in
+    def LDHI : F5<0b00101000,(outs), (ins I8085Imm8: $k), "LDHI $k", []>;
+
+  // LDSI: DE = SP + imm8, no flags
+  let Defs=[DE], Uses=[SP] in
+    def LDSI : F5<0b00111000,(outs), (ins I8085Imm8: $k), "LDSI $k", []>;
+
+  // SHLX: [DE] = HL (16-bit indirect store), no flags
+  let Uses=[DE,HL], mayStore=1 in
+    def SHLX : F1<0b11011001,(outs), (ins), "SHLX", []>;
+
+  // LHLX: HL = [DE] (16-bit indirect load), no flags
+  let Defs=[HL], Uses=[DE], mayLoad=1 in
+    def LHLX : F1<0b11101101,(outs), (ins), "LHLX", []>;
+
+}
+
 include "I8085CondBrInstrInfo.td"
 
 include "I8085InstrInfo32.td"

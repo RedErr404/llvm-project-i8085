@@ -21,6 +21,17 @@ include "llvm/Target/Target.td"
 include "I8085RegisterInfo.td"
 
 //===---------------------------------------------------------------------===//
+// Subtarget Features (must be defined before instruction includes)
+//===---------------------------------------------------------------------===//
+
+def FeatureUndocumented
+    : SubtargetFeature<"undoc", "HasUndocumented", "true",
+                       "Enable undocumented 8085 instructions">;
+
+def HasUndoc : Predicate<"Subtarget->hasUndocumented()">,
+               AssemblerPredicate<(all_of FeatureUndocumented)>;
+
+//===---------------------------------------------------------------------===//
 // Instruction Descriptions
 //===---------------------------------------------------------------------===//
 
@@ -69,6 +80,7 @@ class Proc<string Name, list<SubtargetFeature> Features>
  : Processor<Name, NoItineraries, Features>;
 
 def : Proc<"i8085", []>;
+def : Proc<"i8085-undoc", [FeatureUndocumented]>;
 def : Proc<"generic", []>;
 
 
