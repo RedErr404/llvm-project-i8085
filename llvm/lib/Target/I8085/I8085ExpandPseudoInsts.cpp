@@ -3384,17 +3384,21 @@ template <> bool I8085ExpandPseudo::expand<I8085::MUL_16_IMM>(Block &MBB, BlockI
   };
 
   auto emitSubBC = [&]() {
-    // HL -= BC: MOV A,L; SUB C; MOV L,A; MOV A,H; SBB B; MOV H,A
-    buildMI(MBB, MBBI, I8085::MOV)
-        .addReg(I8085::A, RegState::Define).addReg(I8085::L);
-    buildMI(MBB, MBBI, I8085::SUB).addReg(I8085::C);
-    buildMI(MBB, MBBI, I8085::MOV)
-        .addReg(I8085::L, RegState::Define).addReg(I8085::A);
-    buildMI(MBB, MBBI, I8085::MOV)
-        .addReg(I8085::A, RegState::Define).addReg(I8085::H);
-    buildMI(MBB, MBBI, I8085::SBB).addReg(I8085::B);
-    buildMI(MBB, MBBI, I8085::MOV)
-        .addReg(I8085::H, RegState::Define).addReg(I8085::A);
+    // HL -= BC: with undoc, use DSUB (1 byte); otherwise 6-byte MOV/SUB/SBB sequence
+    if (HasUndoc) {
+      buildMI(MBB, MBBI, I8085::DSUB);
+    } else {
+      buildMI(MBB, MBBI, I8085::MOV)
+          .addReg(I8085::A, RegState::Define).addReg(I8085::L);
+      buildMI(MBB, MBBI, I8085::SUB).addReg(I8085::C);
+      buildMI(MBB, MBBI, I8085::MOV)
+          .addReg(I8085::L, RegState::Define).addReg(I8085::A);
+      buildMI(MBB, MBBI, I8085::MOV)
+          .addReg(I8085::A, RegState::Define).addReg(I8085::H);
+      buildMI(MBB, MBBI, I8085::SBB).addReg(I8085::B);
+      buildMI(MBB, MBBI, I8085::MOV)
+          .addReg(I8085::H, RegState::Define).addReg(I8085::A);
+    }
   };
 
   auto emitShiftN = [&](unsigned N) {

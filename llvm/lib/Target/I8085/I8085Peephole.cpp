@@ -466,6 +466,7 @@ public:
       Changed |= storeToLoadForward(MBB, TII);
       Changed |= eliminateRedundantMoves(MBB, TRI);
       Changed |= mviZeroToXra(MBB, TRI, TII);
+      Changed |= undocStoreThroughDE(MBB, MF);
     }
 
     return Changed;
@@ -591,6 +592,72 @@ public:
         invalidate(R);
 
       It = Nxt;
+    }
+    return Changed;
+  }
+
+  // Undoc optimization: replace STAX D; INX D; MOV A,hi; STAX D [; DCX D]
+  // (store a 16-bit pair through DE) with MOV H,hi; MOV L,lo; SHLX.
+  // Saves 7 bytes → 3 bytes, avoids carry clobber.
+  bool undocStoreThroughDE(MachineBasicBlock &MBB, MachineFunction &MF) {
+    const I8085Subtarget &STI = MF.getSubtarget<I8085Subtarget>();
+    if (!STI.hasUndocumented())
+      return false;
+
+    bool Changed = false;
+    const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
+
+    for (auto It = MBB.begin(); It != MBB.end(); ++It) {
+      // Pattern: MOV A, loReg; STAX D; INX D; MOV A, hiReg; STAX D
+      if (It->getOpcode() != I8085::MOV || !It->getOperand(0).isReg() ||
+          It->getOperand(0).getReg() != I8085::A || !It->getOperand(1).isReg())
+        continue;
+      unsigned LoReg = It->getOperand(1).getReg();
+      auto N1 = std::next(It);
+      if (N1 == MBB.end() || N1->getOpcode() != I8085::STAX ||
+          !N1->getOperand(0).isReg() || N1->getOperand(0).getReg() != I8085::DE)
+        continue;
+      auto N2 = std::next(N1);
+      if (N2 == MBB.end() || N2->getOpcode() != I8085::INX ||
+          !N2->getOperand(0).isReg() || N2->getOperand(0).getReg() != I8085::DE)
+        continue;
+      auto N3 = std::next(N2);
+      if (N3 == MBB.end() || N3->getOpcode() != I8085::MOV ||
+          !N3->getOperand(0).isReg() ||
+          N3->getOperand(0).getReg() != I8085::A || !N3->getOperand(1).isReg())
+        continue;
+      unsigned HiReg = N3->getOperand(1).getReg();
+      auto N4 = std::next(N3);
+      if (N4 == MBB.end() || N4->getOpcode() != I8085::STAX ||
+          !N4->getOperand(0).isReg() || N4->getOperand(0).getReg() != I8085::DE)
+        continue;
+
+      // Verify the registers form a valid pair (BC, DE, or HL subregs)
+      bool ValidPair = false;
+      if ((LoReg == I8085::C && HiReg == I8085::B) ||
+          (LoReg == I8085::E && HiReg == I8085::D) ||
+          (LoReg == I8085::L && HiReg == I8085::H))
+        ValidPair = true;
+      if (!ValidPair)
+        continue;
+
+      // Replace the sequence: MOV A,lo; STAX D; INX D; MOV A,hi; STAX D
+      // with: MOV L, loReg; MOV H, hiReg; SHLX
+      // Skip optional trailing DCX D
+      It = MBB.erase(It, N4); // erase [It, N4) keeping It at N4
+      BuildMI(MBB, It, It->getDebugLoc(), TII->get(I8085::MOV))
+          .addReg(I8085::L, RegState::Define).addReg(LoReg);
+      BuildMI(MBB, It, It->getDebugLoc(), TII->get(I8085::MOV))
+          .addReg(I8085::H, RegState::Define).addReg(HiReg);
+      BuildMI(MBB, It, It->getDebugLoc(), TII->get(I8085::SHLX));
+
+      // Remove optional DCX D that follows (restores DE, but SHLX doesn't modify DE)
+      if (It != MBB.end() && It->getOpcode() == I8085::DCX &&
+          It->getOperand(0).isReg() && It->getOperand(0).getReg() == I8085::DE)
+        It = MBB.erase(It);
+
+      Changed = true;
+      break; // Restart from beginning after structural change
     }
     return Changed;
   }

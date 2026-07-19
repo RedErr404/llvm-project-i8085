@@ -64,6 +64,7 @@ private:
 
   const I8085RegisterInfo *TRI;
   const TargetInstrInfo *TII;
+  bool HasUndoc;
   int ScratchFI = -1;
   int64_t ScratchBaseOffset = 0;
   bool HaveScratch = false;
@@ -369,6 +370,7 @@ bool I8085ExpandPseudo32::runOnMachineFunction(MachineFunction &MF) {
   const I8085Subtarget &STI = MF.getSubtarget<I8085Subtarget>();
   TRI = STI.getRegisterInfo();
   TII = STI.getInstrInfo();
+  HasUndoc = STI.hasUndocumented();
   I8085MachineFunctionInfo *AFI = MF.getInfo<I8085MachineFunctionInfo>();
   ScratchFI = AFI->getGR32ScratchFI();
   IBXRemapped = AFI->isIBXRemappedToZero();
