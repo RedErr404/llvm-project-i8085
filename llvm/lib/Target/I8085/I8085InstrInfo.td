@@ -691,7 +691,7 @@ let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1,
 let isTerminator = 1, isReturn = 1, isBarrier = 1 in {
   let Uses = [SP], Defs = [SP] in {
     def RET : F1<0b11001001, (outs), (ins), "RET", [(I8085retflag)]>;
-    def RETI : F1<0b11011001, (outs), (ins), "RETI", [(I8085retiflag)]>;
+    def RETI : I8085Pseudo<(outs), (ins), "RETI", [(I8085retiflag)]>;
   }
 }
 

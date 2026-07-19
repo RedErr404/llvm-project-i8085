@@ -3684,9 +3684,19 @@ bool I8085ExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
     EXPAND(I8085::GROW_STACK_BY);
     EXPAND(I8085::STORE_8);
     EXPAND(I8085::MUL_16_IMM);
+    EXPAND(I8085::RETI);
   }
 #undef EXPAND
   return false;
+}
+
+template <> bool I8085ExpandPseudo::expand<I8085::RETI>(Block &MBB, BlockIt MBBI) {
+  // RETI is a pseudo that expands to EI; RET
+  // (8085 has no single-byte return-from-interrupt; 0xD9 is the SHLX undoc instruction)
+  buildMI(MBB, MBBI, I8085::EI);
+  buildMI(MBB, MBBI, I8085::RET);
+  MBBI->eraseFromParent();
+  return true;
 }
 
 } // end of anonymous namespace

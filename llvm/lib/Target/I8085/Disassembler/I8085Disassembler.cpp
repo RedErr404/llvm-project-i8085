@@ -161,6 +161,12 @@ static unsigned getInstructionSize(uint8_t Opcode) {
   case 0xDB:
   case 0xD3:
     return 2; // IN/OUT
+  case 0x28:
+  case 0x38:
+    return 2; // LDHI/LDSI (undoc, 2-byte immediate)
+  case 0xDD:
+  case 0xFD:
+    return 3; // JNX5/JX5 (undoc, 3-byte conditional jump)
   default:
     break;
   }
