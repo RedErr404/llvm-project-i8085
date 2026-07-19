@@ -3612,6 +3612,13 @@ template <> bool I8085ExpandPseudo::expand<I8085::MUL_16_IMM>(Block &MBB, BlockI
   return true;
 }
 
+template <> bool I8085ExpandPseudo::expand<I8085::RETI>(Block &MBB, BlockIt MBBI) {
+  buildMI(MBB, MBBI, I8085::EI);
+  buildMI(MBB, MBBI, I8085::RET);
+  MBBI->eraseFromParent();
+  return true;
+}
+
 bool I8085ExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
   int Opcode = MBBI->getOpcode();
@@ -3714,15 +3721,6 @@ bool I8085ExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
   }
 #undef EXPAND
   return false;
-}
-
-template <> bool I8085ExpandPseudo::expand<I8085::RETI>(Block &MBB, BlockIt MBBI) {
-  // RETI is a pseudo that expands to EI; RET
-  // (8085 has no single-byte return-from-interrupt; 0xD9 is the SHLX undoc instruction)
-  buildMI(MBB, MBBI, I8085::EI);
-  buildMI(MBB, MBBI, I8085::RET);
-  MBBI->eraseFromParent();
-  return true;
 }
 
 } // end of anonymous namespace
