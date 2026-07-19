@@ -624,6 +624,16 @@ def DEC_MEM_8_WITH_IMM_ADDR : I8085Pseudo<(outs), (ins imm16Addr: $addr),
                        "DEC_MEM_8_ADDR $addr", []>;
 }
 
+// Same in-place ++/-- but for a byte at an address held in a GR16 register
+// (e.g. (*p)++). The pointer is moved into HL (INR M/DCR M only address via HL)
+// and then incremented/decremented in place.
+let Defs=[HL, SREG], mayLoad = 1, mayStore = 1 in {
+def INC_MEM_8_ADDR_CONTENT : I8085Pseudo<(outs), (ins GR16: $addr),
+                       "INC_MEM_8_CONTENT $addr", []>;
+def DEC_MEM_8_ADDR_CONTENT : I8085Pseudo<(outs), (ins GR16: $addr),
+                       "DEC_MEM_8_CONTENT $addr", []>;
+}
+
 // Branchless i8 constant shift by a large amount k (5..7). A shift by k is a
 // circular rotate the *short* way (8-k positions) followed by masking off the
 // bits that wrapped in. rd = result, rs = source, n = shift amount. Clobber A

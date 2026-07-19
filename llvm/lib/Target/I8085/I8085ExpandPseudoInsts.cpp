@@ -78,6 +78,11 @@ private:
     buildMI(MBB, MBBI, I8085::PUSH).addReg(I8085::PSW);
   }
 
+  // Move the GR16 address operand into HL (unless it already is HL), then emit
+  // incDecOpc (INR_M / DCR_M) which read-modify-writes the byte at (HL).
+  // Defined out-of-line below (needs the file-scope getPairRegs helper).
+  bool expandMemIncDecContent(Block &MBB, BlockIt MBBI, unsigned incDecOpc);
+
   MachineRegisterInfo &getRegInfo(Block &MBB) {
     return MBB.getParent()->getRegInfo();
   }
@@ -2865,6 +2870,38 @@ bool I8085ExpandPseudo::expand<I8085::DEC_MEM_8_WITH_IMM_ADDR>(Block &MBB, Block
   return true;
 }
 
+// In-place ++/-- of a byte at an address held in a GR16 register. Move the
+// pointer into HL (INR M / DCR M only address via HL), then INR M / DCR M.
+// incDecOpc selects INR_M or DCR_M.
+bool I8085ExpandPseudo::expandMemIncDecContent(Block &MBB, BlockIt MBBI,
+                                               unsigned incDecOpc) {
+  MachineInstr &MI = *MBBI;
+  unsigned addrReg = MI.getOperand(0).getReg();
+  if (addrReg == I8085::SP) {
+    buildMI(MBB, MBBI, I8085::LXI).addReg(I8085::HL, RegState::Define).addImm(0);
+    buildMI(MBB, MBBI, I8085::DAD).addReg(I8085::SP);
+  } else if (addrReg != I8085::HL) {
+    unsigned lowReg, highReg;
+    if (!getPairRegs(addrReg, lowReg, highReg))
+      return false;
+    buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::H, RegState::Define).addReg(highReg);
+    buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::L, RegState::Define).addReg(lowReg);
+  }
+  buildMI(MBB, MBBI, incDecOpc);
+  MI.eraseFromParent();
+  return true;
+}
+
+template <>
+bool I8085ExpandPseudo::expand<I8085::INC_MEM_8_ADDR_CONTENT>(Block &MBB, BlockIt MBBI) {
+  return expandMemIncDecContent(MBB, MBBI, I8085::INR_M);
+}
+
+template <>
+bool I8085ExpandPseudo::expand<I8085::DEC_MEM_8_ADDR_CONTENT>(Block &MBB, BlockIt MBBI) {
+  return expandMemIncDecContent(MBB, MBBI, I8085::DCR_M);
+}
+
 // shl i8 by n (5..7) == circular rotate right by (8-n), then clear the low n
 // bits that wrapped in. Rotating the short way is 8-n RRCs (<=3) instead of a
 // runtime loop.
@@ -3460,6 +3497,8 @@ bool I8085ExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
     EXPAND(I8085::SRL_8_HI);
     EXPAND(I8085::INC_MEM_8_WITH_IMM_ADDR);
     EXPAND(I8085::DEC_MEM_8_WITH_IMM_ADDR);
+    EXPAND(I8085::INC_MEM_8_ADDR_CONTENT);
+    EXPAND(I8085::DEC_MEM_8_ADDR_CONTENT);
     EXPAND(I8085::STORE_16_ADDR_CONTENT);
     EXPAND(I8085::STORE_8_ADDR_CONTENT);
     EXPAND(I8085::CALL_INDIRECT);

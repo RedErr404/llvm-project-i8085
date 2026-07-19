@@ -1318,6 +1318,26 @@ template <> bool I8085DAGToDAGISel::select<ISD::STORE>(SDNode *N) {
           CurDAG->RemoveDeadNode(N);
           return true;
         }
+        // Otherwise the address lives in a register (e.g. (*p)++): move it into
+        // HL and use INR M / DCR M via the *_ADDR_CONTENT pseudo. Skip frame /
+        // symbol / offset-addressed bases, which have their own store paths and
+        // cannot be fed straight to a GR16 pointer operand.
+        unsigned OrigOpc = BasePtr.getOpcode();
+        if (!isa<FrameIndexSDNode>(BasePtr) && OrigOpc != I8085ISD::WRAPPER &&
+            OrigOpc != ISD::GlobalAddress && OrigOpc != ISD::TargetGlobalAddress &&
+            OrigOpc != ISD::ExternalSymbol && OrigOpc != ISD::TargetExternalSymbol &&
+            OrigOpc != ISD::JumpTable && OrigOpc != ISD::TargetJumpTable &&
+            OrigOpc != ISD::ADD && OrigOpc != ISD::SUB) {
+          unsigned Opc = IsInc ? I8085::INC_MEM_8_ADDR_CONTENT
+                                : I8085::DEC_MEM_8_ADDR_CONTENT;
+          SDValue Ops[] = {BasePtr, Ld->getChain()};
+          SDNode *ResNode = CurDAG->getMachineNode(Opc, DL, MVT::Other, Ops);
+          CurDAG->setNodeMemRefs(cast<MachineSDNode>(ResNode),
+                                 {Ld->getMemOperand(), ST->getMemOperand()});
+          ReplaceUses(SDValue(N, 0), SDValue(ResNode, 0));
+          CurDAG->RemoveDeadNode(N);
+          return true;
+        }
       }
     }
   }
