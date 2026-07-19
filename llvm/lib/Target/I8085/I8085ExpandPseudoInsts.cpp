@@ -1519,8 +1519,15 @@ bool I8085ExpandPseudo::expand<I8085::XORI_8>(Block &MBB, BlockIt MBBI) {
       .addReg(I8085::A,RegState::Define)
       .addReg(operandOne);
 
-  buildMI(MBB, MBBI, I8085::XRI)
-      .addImm(immValue);
+  // ~x is xor x, 0xFF: use CMA (1 byte, 4T, sets no flags) instead of
+  // XRI 0xFF (2 bytes, 7T, clobbers Z/S/P/CY/AC). Only when the flags this
+  // pseudo defines are dead, since CMA leaves them untouched.
+  if ((immValue & 0xFF) == 0xFF && MI.registerDefIsDead(I8085::SREG, TRI)) {
+    buildMI(MBB, MBBI, I8085::CMA);
+  } else {
+    buildMI(MBB, MBBI, I8085::XRI)
+        .addImm(immValue);
+  }
 
   buildMI(MBB, MBBI, I8085::MOV)
       .addReg(destReg,RegState::Define)
