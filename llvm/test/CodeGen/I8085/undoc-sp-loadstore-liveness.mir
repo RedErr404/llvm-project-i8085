@@ -1,0 +1,126 @@
+# RUN: llc -O0 -mattr=+undoc -run-pass=i8085-expand-pseudo %s -o - | FileCheck %s
+
+# The undoc SP-relative load/store fast paths stage the value through a temp
+# register that the undoc opcode clobbers: A for the 8-bit LDAX/STAX paths, HL
+# for the 16-bit LHLX/SHLX paths (LDSI additionally clobbers all of DE). They
+# may only fire when that temp is dead afterwards (or is itself the value); a
+# live temp must force the portable LXI/DAD fallback. These clobbers were the
+# LDAX-clobbers-A (cmix) and LHLX-clobbers-HL (mix) miscompiles.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @load8_a_dead() { ret void }
+  define void @load8_a_live() { ret void }
+  define void @load16_hl_dead() { ret void }
+  define void @load16_hl_live() { ret void }
+  define void @store8_a_dead() { ret void }
+  define void @store8_a_live() { ret void }
+  define void @store16_hl_dead() { ret void }
+  define void @store16_hl_live() { ret void }
+...
+---
+name:            load8_a_dead
+body:             |
+  bb.0:
+    liveins: $sp
+    ; A is dead after the load: use LDSI + LDAX D.
+    ; CHECK-LABEL: name: load8_a_dead
+    ; CHECK: LDSI 2
+    ; CHECK-NEXT: LDAX $de
+    ; CHECK-NEXT: $b = MOV $a
+    $b = LOAD_8_WITH_ADDR $sp, 2, implicit-def $hl, implicit $sp
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            load8_a_live
+body:             |
+  bb.0:
+    liveins: $sp, $a
+    ; A is live afterwards (read by the trailing MOV); LDAX would destroy it,
+    ; so fall back to the LXI/DAD load.
+    ; CHECK-LABEL: name: load8_a_live
+    ; CHECK-NOT: LDAX
+    ; CHECK: DAD $sp
+    $b = LOAD_8_WITH_ADDR $sp, 2, implicit-def $hl, implicit $sp
+    $c = MOV $a
+    RET implicit $sp, implicit-def $sp, implicit $c
+...
+---
+name:            load16_hl_dead
+body:             |
+  bb.0:
+    liveins: $sp
+    ; HL is dead after the load: use LDSI + LHLX.
+    ; CHECK-LABEL: name: load16_hl_dead
+    ; CHECK: LDSI 4
+    ; CHECK-NEXT: LHLX
+    ; CHECK-NEXT: $c = MOV $l
+    ; CHECK-NEXT: $b = MOV $h
+    $bc = LOAD_16_WITH_ADDR $sp, 4, implicit-def $a, implicit-def $hl, implicit $sp
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            load16_hl_live
+body:             |
+  bb.0:
+    liveins: $sp, $hl
+    ; HL is live afterwards; LHLX would destroy it, so fall back.
+    ; CHECK-LABEL: name: load16_hl_live
+    ; CHECK-NOT: LHLX
+    ; CHECK: DAD $sp
+    $bc = LOAD_16_WITH_ADDR $sp, 4, implicit-def $a, implicit-def $hl, implicit $sp
+    $e = MOV $l
+    RET implicit $sp, implicit-def $sp, implicit $e
+...
+---
+name:            store8_a_dead
+body:             |
+  bb.0:
+    liveins: $sp, $b
+    ; A is dead afterwards: use MOV A,B + LDSI + STAX D.
+    ; CHECK-LABEL: name: store8_a_dead
+    ; CHECK: $a = MOV $b
+    ; CHECK-NEXT: LDSI 3
+    ; CHECK-NEXT: STAX $de
+    STORE_8_AT_OFFSET_WITH_SP $b, 3, implicit-def $hl, implicit $sp
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            store8_a_live
+body:             |
+  bb.0:
+    liveins: $sp, $b, $a
+    ; A is live afterwards; the MOV A,B would destroy it, so fall back.
+    ; CHECK-LABEL: name: store8_a_live
+    ; CHECK-NOT: STAX
+    ; CHECK: DAD $sp
+    STORE_8_AT_OFFSET_WITH_SP $b, 3, implicit-def $hl, implicit $sp
+    $c = MOV $a
+    RET implicit $sp, implicit-def $sp, implicit $c
+...
+---
+name:            store16_hl_dead
+body:             |
+  bb.0:
+    liveins: $sp, $bc
+    ; HL is dead afterwards: stage BC through HL + LDSI + SHLX.
+    ; CHECK-LABEL: name: store16_hl_dead
+    ; CHECK: $hl = COPY $bc
+    ; CHECK-NEXT: LDSI 4
+    ; CHECK-NEXT: SHLX
+    STORE_16_AT_OFFSET_WITH_SP $bc, 4, implicit-def $hl, implicit $sp
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            store16_hl_live
+body:             |
+  bb.0:
+    liveins: $sp, $bc, $hl
+    ; HL is live afterwards; staging through HL would destroy it, so fall back.
+    ; CHECK-LABEL: name: store16_hl_live
+    ; CHECK-NOT: SHLX
+    ; CHECK: DAD $sp
+    STORE_16_AT_OFFSET_WITH_SP $bc, 4, implicit-def $hl, implicit $sp
+    $e = MOV $l
+    RET implicit $sp, implicit-def $sp, implicit $e
+...

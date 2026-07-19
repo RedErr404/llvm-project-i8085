@@ -1171,13 +1171,16 @@ bool I8085ExpandPseudo::expand<I8085::LOAD_8_WITH_ADDR>(Block &MBB, BlockIt MBBI
   int64_t offsetToLoad = MI.getOperand(2).getImm();
 
   // Undoc fast path: LDSI + LDAX D (3 bytes) vs LXI H,offset; DAD SP; MOV r,M (5+ bytes).
-  // No flag clobber, no HL clobber.
+  // LDSI clobbers all of DE; LDAX D clobbers A. The value ends up in destReg, so
+  // every one of A/D/E that is NOT destReg must be dead here (LDSI leaves the
+  // half of DE that isn't destReg holding the address, and A holds the loaded
+  // value). A live value in any of them (e.g. an accumulator in A) would be
+  // destroyed. See the LDAX-D-clobbers-A miscompile in cmix.
   if (HasUndoc && baseReg == I8085::SP && offsetToLoad >= 0 && offsetToLoad <= 255) {
-    bool DEUsed = isPhysRegLive(MBB, MBBI, I8085::DE) ||
-                  isPhysRegLive(MBB, MBBI, I8085::D) ||
-                  isPhysRegLive(MBB, MBBI, I8085::E);
-    bool DEOk = !DEUsed || destReg == I8085::D || destReg == I8085::E;
-    if (DEOk) {
+    bool AOk = destReg == I8085::A || !isPhysRegLive(MBB, MBBI, I8085::A);
+    bool DOk = destReg == I8085::D || !isPhysRegLive(MBB, MBBI, I8085::D);
+    bool EOk = destReg == I8085::E || !isPhysRegLive(MBB, MBBI, I8085::E);
+    if (AOk && DOk && EOk) {
       buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToLoad);
       buildMI(MBB, MBBI, I8085::LDAX).addReg(I8085::DE);
       if (destReg != I8085::A)
@@ -1328,7 +1331,11 @@ bool I8085ExpandPseudo::expand<I8085::LOAD_16_WITH_ADDR>(Block &MBB, BlockIt MBB
                   isPhysRegLive(MBB, MBBI, I8085::D) ||
                   isPhysRegLive(MBB, MBBI, I8085::E);
     bool DEOk = !DEUsed || destReg == I8085::DE;
-    if (DEOk) {
+    // LHLX clobbers all of HL. Unless HL is the destination, a live HL (or
+    // sub-register) would be destroyed, so require it dead. Covers the pair
+    // (BC/DE) and SP destinations, which stage the value through HL.
+    bool HLOk = destReg == I8085::HL || !isHLOrSubRegLive(MBB, MBBI);
+    if (DEOk && HLOk) {
     if (destReg == I8085::HL || destReg == I8085::SP) {
       buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToLoad);
       buildMI(MBB, MBBI, I8085::LHLX);
@@ -3289,14 +3296,16 @@ template <> bool I8085ExpandPseudo::expand<I8085::STORE_8_AT_OFFSET_WITH_SP>(Blo
   int64_t offsetToStore = MI.getOperand(1).getImm();
 
   // Undoc fast path: LDSI + STAX D (3 bytes) vs LXI H+offset; DAD SP; MOV M,r (5+ bytes)
-  // LDSI clobbers DE. Safe if: DE is dead, OR we're writing D/E (copied to A first).
+  // LDSI clobbers all of DE; MOV A,srcReg clobbers A. srcReg is only read, so
+  // safety is about what is live *after* the store: DE must be dead, and A must
+  // be dead unless srcReg is A. isPhysRegLive() reports liveness after MBBI, so
+  // a still-live srcReg does not falsely appear here.
   if (HasUndoc && offsetToStore >= 0 && offsetToStore <= 255) {
-    bool DEUsed = isPhysRegLive(MBB, MBBI, I8085::DE) ||
-                  isPhysRegLive(MBB, MBBI, I8085::D) ||
-                  isPhysRegLive(MBB, MBBI, I8085::E);
-    // If the store source IS D or E, we copy it to A before LDSI, so DE is safe.
-    bool DEOk = !DEUsed || srcReg == I8085::D || srcReg == I8085::E;
-    if (DEOk) {
+    bool DEOk = !isPhysRegLive(MBB, MBBI, I8085::D) &&
+                !isPhysRegLive(MBB, MBBI, I8085::E) &&
+                !isPhysRegLive(MBB, MBBI, I8085::DE);
+    bool AOk = srcReg == I8085::A || !isPhysRegLive(MBB, MBBI, I8085::A);
+    if (DEOk && AOk) {
       if (srcReg != I8085::A)
         buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::A, RegState::Define).addReg(srcReg);
       buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToStore);
@@ -3322,13 +3331,16 @@ template <> bool I8085ExpandPseudo::expand<I8085::STORE_16_AT_OFFSET_WITH_SP>(Bl
   int64_t offsetToStore = MI.getOperand(1).getImm();
 
   // Undoc fast path: LDSI + SHLX (3 bytes) vs LXI H+offset; DAD SP; MOV M,lo; INX H; MOV M,hi (7+ bytes)
-  // LDSI clobbers DE. Safe if: DE is dead, OR srcReg IS DE (copied to HL first).
+  // LDSI clobbers all of DE; COPY HL,srcReg clobbers HL. srcReg is only read, so
+  // safety is about what is live *after* the store: DE must be dead, and HL must
+  // be dead unless srcReg is HL. isPhysRegLive() reports liveness after MBBI, so
+  // a still-live srcReg does not falsely appear here.
   if (HasUndoc && offsetToStore >= 0 && offsetToStore <= 255) {
-    bool DEUsed = isPhysRegLive(MBB, MBBI, I8085::DE) ||
-                  isPhysRegLive(MBB, MBBI, I8085::D) ||
-                  isPhysRegLive(MBB, MBBI, I8085::E);
-    bool DEOk = !DEUsed || srcReg == I8085::DE;
-    if (DEOk) {
+    bool DEOk = !isPhysRegLive(MBB, MBBI, I8085::D) &&
+                !isPhysRegLive(MBB, MBBI, I8085::E) &&
+                !isPhysRegLive(MBB, MBBI, I8085::DE);
+    bool HLOk = srcReg == I8085::HL || !isHLOrSubRegLive(MBB, MBBI);
+    if (DEOk && HLOk) {
       if (srcReg != I8085::HL)
         buildMI(MBB, MBBI, TargetOpcode::COPY, I8085::HL).addReg(srcReg);
       buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToStore);
