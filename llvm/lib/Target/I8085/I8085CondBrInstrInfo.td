@@ -166,7 +166,12 @@ let isTerminator = 1, isReturn = 1, Uses = [SREG, SP], Defs = [SP] in {
    def RM  : F1<0b11111000,(outs),(ins),"RM", []>;
 }
 
-let isCall = 1 in {
+// Conditional calls test a status flag (Uses SREG) and, when it holds, push the
+// return address and call exactly like CALL - so a taken call clobbers every
+// caller-saved register (Defs) and uses SP. When the condition is false they
+// fall through, altering nothing. Not terminators (control resumes after them).
+let isCall = 1, Uses = [SREG, SP],
+    Defs = [SP, A, B, C, D, E, H, L] in {
    def CNZ : F6<0b11000100,(outs),(ins imm16Addr:$k),"CNZ $k", []>;
    def CZ  : F6<0b11001100,(outs),(ins imm16Addr:$k),"CZ $k", []>;
    def CNC : F6<0b11010100,(outs),(ins imm16Addr:$k),"CNC $k", []>;

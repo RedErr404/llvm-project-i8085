@@ -48,6 +48,38 @@ static unsigned condReturnOpc(unsigned BrOpc) {
   }
 }
 
+// Map a conditional branch opcode to the conditional-call opcode for the
+// OPPOSITE condition. `Jcc skip ; CALL foo` calls foo when the branch is NOT
+// taken, so the fused conditional call tests the negated flag. Returns 0 if the
+// opcode is not a conditional branch we can fuse.
+static unsigned invCondCallOpc(unsigned BrOpc) {
+  switch (BrOpc) {
+  case I8085::JZ:  return I8085::CNZ;
+  case I8085::JNZ: return I8085::CZ;
+  case I8085::JC:  return I8085::CNC;
+  case I8085::JNC: return I8085::CC;
+  case I8085::JP:  return I8085::CM;
+  case I8085::JM:  return I8085::CP;
+  case I8085::JPE: return I8085::CPO;
+  case I8085::JPO: return I8085::CPE;
+  default:         return 0;
+  }
+}
+
+// The single non-debug instruction of MBB, or nullptr if it has zero or more
+// than one.
+static MachineInstr *soleRealInstr(MachineBasicBlock &MBB) {
+  MachineInstr *Only = nullptr;
+  for (MachineInstr &MI : MBB) {
+    if (MI.isDebugInstr())
+      continue;
+    if (Only)
+      return nullptr;
+    Only = &MI;
+  }
+  return Only;
+}
+
 // True if MBB's only non-debug instruction is a bare, unconditional RET. Such a
 // block does no stack cleanup, so a branch to it can be replaced by a
 // conditional return without skipping any epilogue work.
@@ -82,6 +114,50 @@ public:
     for (MachineBasicBlock &MBB : MF) {
       for (auto MI = MBB.begin(); MI != MBB.end();) {
         auto Next = std::next(MI);
+
+        // Conditional-call fusion: `Jcc T` at the end of block B whose
+        // fall-through block is exactly one bare `CALL foo` that then joins T
+        // becomes a single conditional call `C(!cc) foo`. This is the safe
+        // "no argument setup" subset (void / already-placed-args): the call
+        // block holds nothing but the CALL, so no flag-clobbering setup sits
+        // between the flag test and the call, and the negated-condition call
+        // sits exactly where Jcc did. Saves the 3-byte branch and one taken
+        // jump. Ordered before the conditional-return rule so an end-of-function
+        // `if (c) foo();` becomes `Cnz foo ; RET` rather than `Rz ; CALL ; RET`.
+        if (unsigned Ccc = invCondCallOpc(MI->getOpcode())) {
+          if (Next == MBB.end() && MI->getNumOperands() >= 1 &&
+              MI->getOperand(0).isMBB()) {
+            MachineBasicBlock *T = MI->getOperand(0).getMBB();
+            auto FTIt = std::next(MBB.getIterator());
+            if (FTIt != MF.end()) {
+              MachineBasicBlock *FT = &*FTIt;
+              auto AfterFT = std::next(FTIt);
+              MachineInstr *Call = soleRealInstr(*FT);
+              // FT must be a lone direct CALL, sole-predecessor B, sole-successor
+              // T, and fall through to T (T laid out immediately after FT).
+              if (Call && Call->getOpcode() == I8085::CALL &&
+                  Call->getNumOperands() >= 1 && !Call->getOperand(0).isReg() &&
+                  FT->pred_size() == 1 && *FT->pred_begin() == &MBB &&
+                  FT->succ_size() == 1 && *FT->succ_begin() == T &&
+                  AfterFT != MF.end() && &*AfterFT == T && MBB.isSuccessor(T)) {
+                const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
+                MachineInstrBuilder MIB =
+                    BuildMI(MBB, MI, MI->getDebugLoc(), TII->get(Ccc));
+                // Carry the call target and the register mask; the descriptor
+                // supplies the implicit SREG/SP use and caller-saved clobbers.
+                MIB.add(Call->getOperand(0));
+                for (const MachineOperand &MO : Call->operands())
+                  if (MO.isRegMask())
+                    MIB.addRegMask(MO.getRegMask());
+                Call->eraseFromParent(); // FT becomes empty, falls through to T
+                MI = MBB.erase(MI);      // drop the branch; B falls through to FT
+                MBB.removeSuccessor(T);  // T now reached only via FT
+                Changed = true;
+                continue;
+              }
+            }
+          }
+        }
 
         // Conditional-return: a conditional branch whose target block is a lone
         // bare RET becomes the matching conditional return (Jcc L / L: RET ->
