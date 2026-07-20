@@ -1,0 +1,104 @@
+# RUN: llc -O0 -mattr=+undoc -run-pass=i8085-peephole %s -o - | FileCheck %s
+# RUN: llc -O0 -run-pass=i8085-peephole %s -o - | FileCheck %s --check-prefix=PLAIN
+
+# The struct-field 16-bit load idiom, post-expansion:
+#   LXI rp, off ; ... ; DAD rp ; MOV_FROM_M lo ; INX H ; MOV_FROM_M hi [; DCX H]
+# computes HL = base+off then dereferences [HL] byte-wise. Under +undoc a
+# post-RA peephole folds it to LDHI off ; LHLX ; MOV lo,L ; MOV hi,H and deletes
+# the now-dead LXI. LDHI/LHLX touch no flags and the base is already in HL, so no
+# register-allocation copies are introduced. Guards: HL/SREG dead afterwards, DE
+# dead (unless DE is the destination), and rp not read between the LXI and DAD.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define i16 @dest_de() { ret i16 0 }
+  define i16 @dest_bc() { ret i16 0 }
+  define i16 @rp_read_between() { ret i16 0 }
+  define i16 @hl_live_after() { ret i16 0 }
+...
+---
+name:            dest_de
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $hl
+    ; Base in HL, offset 9 in DE, destination DE. LXI removed; LDHI 9 ; LHLX ;
+    ; MOV E,L ; MOV D,H. The trailing DCX H is dropped (HL dead after).
+    ; CHECK-LABEL: name: dest_de
+    ; CHECK-NOT: LXI
+    ; CHECK: LDHI 9
+    ; CHECK-NEXT: LHLX
+    ; CHECK-NEXT: $e = MOV $l
+    ; CHECK-NEXT: $d = MOV $h
+    ; CHECK-NOT: DAD
+    ; CHECK-NOT: MOV_FROM_M
+    ; PLAIN-LABEL: name: dest_de
+    ; PLAIN-NOT: LDHI
+    ; PLAIN: DAD $de
+    $de = LXI 9
+    DAD $de, implicit-def $sreg, implicit-def $h, implicit-def $l, implicit $h, implicit $l
+    $e = MOV_FROM_M implicit $h, implicit $l
+    $hl = INX
+    $d = MOV_FROM_M implicit $h, implicit $l
+    $hl = DCX
+    RET implicit $sp, implicit-def $sp, implicit $de
+...
+---
+name:            dest_bc
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $hl
+    ; Base in HL, offset 4 in BC, destination BC. DE dead after, so LDHI's DE
+    ; clobber is fine.
+    ; CHECK-LABEL: name: dest_bc
+    ; CHECK: LDHI 4
+    ; CHECK-NEXT: LHLX
+    ; CHECK-NEXT: $c = MOV $l
+    ; CHECK-NEXT: $b = MOV $h
+    $bc = LXI 4
+    DAD $bc, implicit-def $sreg, implicit-def $h, implicit-def $l, implicit $h, implicit $l
+    $c = MOV_FROM_M implicit $h, implicit $l
+    $hl = INX
+    $b = MOV_FROM_M implicit $h, implicit $l
+    $hl = DCX
+    RET implicit $sp, implicit-def $sp, implicit $bc
+...
+---
+name:            rp_read_between
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $hl
+    ; The offset pair DE is read (MOV A,E) between the LXI and the DAD, so the
+    ; LXI cannot be deleted -> no conversion.
+    ; CHECK-LABEL: name: rp_read_between
+    ; CHECK-NOT: LDHI
+    ; CHECK: DAD $de
+    $de = LXI 5
+    $a = MOV $e
+    DAD $de, implicit-def $sreg, implicit-def $h, implicit-def $l, implicit $h, implicit $l
+    $e = MOV_FROM_M implicit $h, implicit $l
+    $hl = INX
+    $d = MOV_FROM_M implicit $h, implicit $l
+    RET implicit $sp, implicit-def $sp, implicit $de, implicit $a
+...
+---
+name:            hl_live_after
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $hl
+    ; HL is used after the window (MOV A,H), so the LHLX clobber of HL would be
+    ; observable -> no conversion.
+    ; CHECK-LABEL: name: hl_live_after
+    ; CHECK-NOT: LDHI
+    ; CHECK: DAD $de
+    $de = LXI 6
+    DAD $de, implicit-def $sreg, implicit-def $h, implicit-def $l, implicit $h, implicit $l
+    $c = MOV_FROM_M implicit $h, implicit $l
+    $hl = INX
+    $b = MOV_FROM_M implicit $h, implicit $l
+    $a = MOV $h
+    RET implicit $sp, implicit-def $sp, implicit $bc, implicit $a
+...

@@ -467,6 +467,7 @@ public:
       Changed |= eliminateRedundantMoves(MBB, TRI);
       Changed |= mviZeroToXra(MBB, TRI, TII);
       Changed |= undocStoreThroughDE(MBB, MF);
+      Changed |= undocLoadOffThroughHL(MBB, MF);
     }
 
     return Changed;
@@ -685,6 +686,154 @@ public:
 
       Changed = true;
       break; // Restart from beginning after structural change
+    }
+    return Changed;
+  }
+
+  // Undoc optimization: fold a struct-field / array-element 16-bit load
+  //   LXI rp, off          (rp = BC or DE, off in [1,255], loaded earlier)
+  //   ... (base pointer computed into HL) ...
+  //   DAD rp               ; HL = base + off
+  //   MOV_FROM_M lo ; INX H ; MOV_FROM_M hi [; DCX H]   ; pair = [HL]
+  // into
+  //   LDHI off ; LHLX ; MOV lo,L ; MOV hi,H             ; DE = base+off, HL = [DE]
+  // and delete the now-dead `LXI rp, off`. LDHI/LHLX touch no flags and (unlike
+  // the ISel-level attempt) this is a pure post-RA rewrite that introduces no
+  // register-allocation copies: the base is already in HL at the DAD. Net win is
+  // real only because we also remove the LXI, so we require the LXI to be dead
+  // once the DAD is gone (rp not read between LXI and DAD, and rp dead after the
+  // window unless it is the destination pair).
+  bool undocLoadOffThroughHL(MachineBasicBlock &MBB, MachineFunction &MF) {
+    const I8085Subtarget &STI = MF.getSubtarget<I8085Subtarget>();
+    if (!STI.hasUndocumented())
+      return false;
+    const TargetInstrInfo *TII = STI.getInstrInfo();
+    const TargetRegisterInfo *TRI = STI.getRegisterInfo();
+
+    bool Changed = false;
+    bool Again = true;
+    while (Again) {
+      Again = false;
+      for (auto It = MBB.begin(); It != MBB.end(); ++It) {
+        // Anchor on `DAD rp` with rp a BC/DE offset pair (never SP or HL).
+        if (It->getOpcode() != I8085::DAD || !It->getOperand(0).isReg())
+          continue;
+        unsigned Rp = It->getOperand(0).getReg();
+        if (Rp != I8085::BC && Rp != I8085::DE)
+          continue;
+
+        // Deref window: MOV_FROM_M lo ; INX H ; MOV_FROM_M hi [; DCX H].
+        auto N1 = std::next(It);
+        if (N1 == MBB.end() || N1->getOpcode() != I8085::MOV_FROM_M ||
+            !N1->getOperand(0).isReg())
+          continue;
+        unsigned Lo = N1->getOperand(0).getReg();
+        auto N2 = std::next(N1);
+        if (N2 == MBB.end() || N2->getOpcode() != I8085::INX ||
+            !N2->getOperand(0).isReg() || N2->getOperand(0).getReg() != I8085::HL)
+          continue;
+        auto N3 = std::next(N2);
+        if (N3 == MBB.end() || N3->getOpcode() != I8085::MOV_FROM_M ||
+            !N3->getOperand(0).isReg())
+          continue;
+        unsigned Hi = N3->getOperand(0).getReg();
+
+        // (lo,hi) must be a GR16BD pair: (C,B) or (E,D).
+        unsigned Dest;
+        if (Lo == I8085::C && Hi == I8085::B)
+          Dest = I8085::BC;
+        else if (Lo == I8085::E && Hi == I8085::D)
+          Dest = I8085::DE;
+        else
+          continue;
+
+        auto N4 = std::next(N3);
+        bool HasDcx = N4 != MBB.end() && N4->getOpcode() == I8085::DCX &&
+                      N4->getOperand(0).isReg() &&
+                      N4->getOperand(0).getReg() == I8085::HL;
+        auto WinEnd = HasDcx ? N4 : N3; // last window instruction (inclusive)
+
+        // Trace back to the reaching def of rp: it must be `LXI rp, imm` with
+        // high byte 0 and low byte in [1,255], with rp neither read nor
+        // otherwise redefined between that LXI and the DAD.
+        MachineBasicBlock::iterator LxiIt = MBB.end();
+        int64_t Imm = -1;
+        bool BadTrace = false;
+        for (auto B = It; B != MBB.begin();) {
+          --B;
+          bool DefsRp = false, UsesRp = false;
+          for (const MachineOperand &MO : B->operands()) {
+            if (!MO.isReg() || !MO.getReg())
+              continue;
+            if (TRI->regsOverlap(MO.getReg(), Rp)) {
+              if (MO.isDef())
+                DefsRp = true;
+              else
+                UsesRp = true;
+            }
+          }
+          if (DefsRp) {
+            if (B->getOpcode() == I8085::LXI && B->getOperand(0).isReg() &&
+                B->getOperand(0).getReg() == Rp && B->getOperand(1).isImm()) {
+              uint16_t V = static_cast<uint16_t>(B->getOperand(1).getImm());
+              if ((V >> 8) == 0 && (V & 0xFF) >= 1) {
+                LxiIt = B;
+                Imm = V & 0xFF;
+              }
+            }
+            break; // first def going back settles it
+          }
+          if (UsesRp) {
+            BadTrace = true; // rp read between LXI and DAD -> can't drop the LXI
+            break;
+          }
+        }
+        if (BadTrace || LxiIt == MBB.end())
+          continue;
+
+        // Liveness immediately after the window. LDHI/LHLX leave HL = value and
+        // DE = base+off and preserve flags, versus the original leaving HL/DE as
+        // address scratch and DAD having set CY; and we drop the LXI. So require
+        // HL dead, SREG dead, DE dead (unless DE is the destination), and rp
+        // dead (unless rp is the destination).
+        LivePhysRegs Live(*TRI);
+        Live.addLiveOuts(MBB);
+        for (MachineInstr &MI : llvm::reverse(MBB)) {
+          if (&MI == &*WinEnd)
+            break;
+          Live.stepBackward(MI);
+        }
+        if (Live.contains(I8085::H) || Live.contains(I8085::L))
+          continue;
+        if (Live.contains(I8085::SREG))
+          continue;
+        if (Dest != I8085::DE &&
+            (Live.contains(I8085::D) || Live.contains(I8085::E)))
+          continue;
+        if (Rp != Dest) {
+          unsigned RpLo = (Rp == I8085::BC) ? I8085::C : I8085::E;
+          unsigned RpHi = (Rp == I8085::BC) ? I8085::B : I8085::D;
+          if (Live.contains(RpLo) || Live.contains(RpHi))
+            continue;
+        }
+
+        // Rewrite: LDHI off ; LHLX ; MOV lo,L ; MOV hi,H, drop the window and
+        // the dead LXI.
+        DebugLoc DL = It->getDebugLoc();
+        BuildMI(MBB, It, DL, TII->get(I8085::LDHI)).addImm(Imm);
+        BuildMI(MBB, It, DL, TII->get(I8085::LHLX));
+        BuildMI(MBB, It, DL, TII->get(I8085::MOV))
+            .addReg(Lo, RegState::Define)
+            .addReg(I8085::L);
+        BuildMI(MBB, It, DL, TII->get(I8085::MOV))
+            .addReg(Hi, RegState::Define)
+            .addReg(I8085::H);
+        MBB.erase(It, std::next(WinEnd)); // erase DAD .. WinEnd inclusive
+        MBB.erase(LxiIt);                 // drop the now-dead LXI rp, off
+        Changed = true;
+        Again = true;
+        break; // iterators invalidated; restart scan
+      }
     }
     return Changed;
   }
