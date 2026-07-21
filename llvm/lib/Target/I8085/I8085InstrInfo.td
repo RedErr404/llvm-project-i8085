@@ -465,8 +465,14 @@ def mspibdsp : Operand<iPTR> {
 
 
 def LXI : F4<0b0001,(outs GR16: $rd), (ins I8085Imm16: $k), "LXI $rd, $k", []>;
-def INX : F8<0b0011,(outs GR16: $rd), (ins), "INX $rd", []>;
-def DCX : F8<0b1011,(outs GR16: $rd), (ins), "DCX $rd", []>;
+// INX/DCX read-modify-write their register pair (rd = rd +/- 1). Model that
+// read with a tied input operand ($rs = $rd), exactly like the 8-bit INR/DCR;
+// omitting it (def-only) breaks def-use chains and makes -verify-machineinstrs
+// report spurious undefined-register uses. They set no flags.
+let Constraints = "$rs = $rd" in {
+def INX : F8<0b0011,(outs GR16: $rd), (ins GR16: $rs), "INX $rd", []>;
+def DCX : F8<0b1011,(outs GR16: $rd), (ins GR16: $rs), "DCX $rd", []>;
+}
 
 // 16-bit +/-1 as a single INX/DCX (1 byte, no flags) instead of the byte-wise
 // ADD_16/SUB_16 sequence. The value stays in its own pair (any of BC/DE/HL/SP),

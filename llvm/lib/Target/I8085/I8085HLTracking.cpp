@@ -148,7 +148,8 @@ private:
 
               for (int i = 0; i < count; i++) {
                 BuildMI(MBB, InsertPt, DL, TII->get(Opc))
-                    .addReg(I8085::HL, RegState::Define);
+                    .addReg(I8085::HL, RegState::Define)
+                    .addReg(I8085::HL);
               }
 
               auto AfterDAD = std::next(Next);

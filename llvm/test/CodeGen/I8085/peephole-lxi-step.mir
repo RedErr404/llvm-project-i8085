@@ -18,8 +18,8 @@ body:             |
     ; CHECK: %1{{.*}} = LXI 4
     ; CHECK-NOT: DCX
     %0 = LXI 0
-    %0 = INX
+    %0 = INX %0
     %1 = LXI 5
-    %1 = DCX
+    %1 = DCX %1
     RET implicit $sp, implicit-def $sp
 ...

@@ -38,9 +38,9 @@ body:             |
     $de = LXI 9
     DAD $de, implicit-def $sreg, implicit-def $h, implicit-def $l, implicit $h, implicit $l
     $e = MOV_FROM_M implicit $h, implicit $l
-    $hl = INX
+    $hl = INX $hl
     $d = MOV_FROM_M implicit $h, implicit $l
-    $hl = DCX
+    $hl = DCX $hl
     RET implicit $sp, implicit-def $sp, implicit $de
 ...
 ---
@@ -59,9 +59,9 @@ body:             |
     $bc = LXI 4
     DAD $bc, implicit-def $sreg, implicit-def $h, implicit-def $l, implicit $h, implicit $l
     $c = MOV_FROM_M implicit $h, implicit $l
-    $hl = INX
+    $hl = INX $hl
     $b = MOV_FROM_M implicit $h, implicit $l
-    $hl = DCX
+    $hl = DCX $hl
     RET implicit $sp, implicit-def $sp, implicit $bc
 ...
 ---
@@ -79,7 +79,7 @@ body:             |
     $a = MOV $e
     DAD $de, implicit-def $sreg, implicit-def $h, implicit-def $l, implicit $h, implicit $l
     $e = MOV_FROM_M implicit $h, implicit $l
-    $hl = INX
+    $hl = INX $hl
     $d = MOV_FROM_M implicit $h, implicit $l
     RET implicit $sp, implicit-def $sp, implicit $de, implicit $a
 ...
@@ -97,7 +97,7 @@ body:             |
     $de = LXI 6
     DAD $de, implicit-def $sreg, implicit-def $h, implicit-def $l, implicit $h, implicit $l
     $c = MOV_FROM_M implicit $h, implicit $l
-    $hl = INX
+    $hl = INX $hl
     $b = MOV_FROM_M implicit $h, implicit $l
     $a = MOV $h
     RET implicit $sp, implicit-def $sp, implicit $bc, implicit $a

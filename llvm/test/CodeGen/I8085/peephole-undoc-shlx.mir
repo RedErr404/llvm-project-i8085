@@ -29,10 +29,10 @@ body:             |
     ; CHECK-NOT: DCX
     $a = MOV $c
     STAX $de, implicit $a
-    $de = INX
+    $de = INX $de
     $a = MOV $b
     STAX $de, implicit $a
-    $de = DCX
+    $de = DCX $de
     RET implicit $sp, implicit-def $sp
 ...
 ---
@@ -47,7 +47,7 @@ body:             |
     ; CHECK: STAX
     $a = MOV $c
     STAX $de, implicit $a
-    $de = INX
+    $de = INX $de
     $a = MOV $b
     STAX $de, implicit $a
     $a = MOV $l
@@ -65,7 +65,7 @@ body:             |
     ; CHECK: STAX
     $a = MOV $c
     STAX $de, implicit $a
-    $de = INX
+    $de = INX $de
     $a = MOV $b
     STAX $de, implicit $a
     $a = MOV $e
