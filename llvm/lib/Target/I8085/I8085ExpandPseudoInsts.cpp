@@ -163,27 +163,34 @@ private:
       // PreserveHL pattern (PUSH/POP HL when live) will protect the value,
       // so we skip them and keep scanning.
       bool defsHL = false;
+      bool defsHLExplicitly = false;
       for (const MachineOperand &MO : Inst.operands()) {
         if (!MO.isReg() || !MO.isDef())
           continue;
         Register Reg = MO.getReg();
         if (Reg == I8085::H || Reg == I8085::L || Reg == I8085::HL) {
           defsHL = true;
-          break;
+          if (!MO.isImplicit()) {
+            defsHLExplicitly = true;
+            break;
+          }
         }
       }
       if (defsHL) {
-        // These pseudos all use isHLOrSubRegLive + PUSH/POP HL in their
-        // expansion.  When they are expanded (later in this pass), they
-        // will preserve HL if it is live.  So their implicit-def $hl
-        // does not genuinely kill the HL value -- skip them.
+        // A pseudo whose *explicit* destination is HL really does kill the
+        // incoming value -- a later read of $h/$l consumes the result of that
+        // pseudo, not ours -- so it ends the scan like any other redefinition.
+        // Only the incidental (implicit) HL clobber of the pseudos below can be
+        // skipped: they call isHLOrSubRegLive themselves when expanded and will
+        // preserve HL if it is live.
         unsigned Opc = Inst.getOpcode();
-        if (Opc == I8085::LOAD_8_WITH_ADDR ||
-            Opc == I8085::LOAD_16_WITH_ADDR ||
-            Opc == I8085::STORE_8 ||
-            Opc == I8085::STORE_16 ||
-            Opc == I8085::STORE_8_AT_OFFSET_WITH_SP ||
-            Opc == I8085::STORE_16_AT_OFFSET_WITH_SP)
+        if (!defsHLExplicitly &&
+            (Opc == I8085::LOAD_8_WITH_ADDR ||
+             Opc == I8085::LOAD_16_WITH_ADDR ||
+             Opc == I8085::STORE_8 ||
+             Opc == I8085::STORE_16 ||
+             Opc == I8085::STORE_8_AT_OFFSET_WITH_SP ||
+             Opc == I8085::STORE_16_AT_OFFSET_WITH_SP))
           continue;  // skip this pseudo, keep scanning
         // Otherwise, HL is genuinely redefined; stop scanning.
         return false;

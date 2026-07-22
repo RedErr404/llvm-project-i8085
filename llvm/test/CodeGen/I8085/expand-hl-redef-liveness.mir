@@ -1,0 +1,51 @@
+# RUN: llc -O0 -mattr=+undoc -run-pass=i8085-expand-pseudo %s -o - | FileCheck %s
+
+# The HL-preservation test in the expander forward-scans for a read of $h/$l and
+# skips over intervening HL-defining pseudos, because those pseudos preserve HL
+# themselves when it is live.  That reasoning only holds for their *incidental*
+# HL clobber; when HL is a pseudo's explicit destination operand it genuinely
+# kills the incoming value, and any later read of $h/$l consumes the new value,
+# not ours.  Skipping such a def makes the earlier expansion push a dead HL.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @hl_redefined_by_pseudo() { ret void }
+  define void @hl_read_before_redef() { ret void }
+...
+---
+name:            hl_redefined_by_pseudo
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $sp
+    ; The LXI gives HL a reaching definition, but that value is dead: the MOVs
+    ; below read the HL defined by the *second* load's explicit destination.  So
+    ; the first load must not preserve HL -- and with HL free it can take the
+    ; LDSI/LHLX fast path.
+    ; CHECK-LABEL: name: hl_redefined_by_pseudo
+    ; CHECK-NOT: PUSH $hl
+    ; CHECK: LDSI 27
+    ; CHECK-NEXT: LHLX
+    $hl = LXI 5
+    $de = LOAD_16_WITH_ADDR $sp, 27, implicit $sp
+    $hl = LOAD_16_WITH_ADDR $sp, 29, implicit $sp
+    $b = MOV $h
+    $c = MOV $l
+    RET implicit $sp, implicit-def $sp, implicit $bc, implicit $de
+...
+---
+name:            hl_read_before_redef
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $sp, $hl
+    ; Here $h is read *before* HL is redefined, so the incoming value really is
+    ; live across the first load and must be preserved.
+    ; CHECK-LABEL: name: hl_read_before_redef
+    ; CHECK: PUSH $hl
+    $de = LOAD_16_WITH_ADDR $sp, 27, implicit $sp
+    $b = MOV $h
+    $hl = LOAD_16_WITH_ADDR $sp, 29, implicit $sp
+    $c = MOV $l
+    RET implicit $sp, implicit-def $sp, implicit $bc, implicit $de
+...
