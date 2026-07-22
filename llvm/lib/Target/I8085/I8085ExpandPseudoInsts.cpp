@@ -122,6 +122,15 @@ private:
   }
 
   bool isHLOrSubRegLive(Block &MBB, BlockIt MBBI) const {
+    // If HL has no reaching definition here (not live-in and not defined
+    // earlier in this block) there is simply no value to preserve, whatever the
+    // liveness walks say.  This must be checked FIRST: the backward walk below
+    // reports "live" whenever some later instruction reads H/L, even when that
+    // read consumes a value defined *after* this point -- which would make the
+    // caller emit a PUSH of an undefined HL.
+    if (!hasAvailableHLValue(MBB, MBBI))
+      return false;
+
     if (isPhysRegLive(MBB, MBBI, I8085::HL) ||
         isPhysRegLive(MBB, MBBI, I8085::H) ||
         isPhysRegLive(MBB, MBBI, I8085::L)) {
@@ -130,9 +139,6 @@ private:
     if (MBB.isLiveIn(I8085::HL) || MBB.isLiveIn(I8085::H) ||
         MBB.isLiveIn(I8085::L))
       return true;
-
-    if (!hasAvailableHLValue(MBB, MBBI))
-      return false;
 
     // Do a forward scan from MBBI to detect if $h or $l is read before
     // being redefined.  This catches cases where the backwards walk might
@@ -208,11 +214,12 @@ private:
       if (I->modifiesRegister(I8085::C, TRI))
         DefC = true;
       if (DefB && DefC)
-        return false; // fully overwritten before any read -> dead
-      if (I->isTerminator())
-        return true; // may be live in a successor
+        break; // fully overwritten before any read -> dead
     }
-    return true; // reached the block end without a full redefinition
+    // No in-block read of the incoming value was found.  Liveness out of the
+    // block is already covered by the addLiveOuts-seeded walk above, so BC is
+    // dead here.
+    return false;
   }
 
   bool shouldPreservePSW(Block &MBB, BlockIt MBBI) const {
@@ -708,13 +715,20 @@ bool I8085ExpandPseudo::expand<I8085::STORE_16_ADDR_CONTENT>(Block &MBB, BlockIt
   }
 
   if (addrReg == I8085::HL && srcReg == I8085::HL) {
-    buildMI(MBB, MBBI, I8085::PUSH).addReg(I8085::BC);
+    // BC is borrowed to shuttle the value through the stack; only save/restore
+    // it when its incoming value is live (pushing a dead BC reads an undefined
+    // register and costs a pointless PUSH/POP).  No SP-relative address is
+    // formed here, so the push depth does not need compensating.
+    const bool PreserveBC = isBCOrSubRegLive(MBB, MBBI);
+    if (PreserveBC)
+      buildMI(MBB, MBBI, I8085::PUSH).addReg(I8085::BC);
     buildMI(MBB, MBBI, I8085::PUSH).addReg(I8085::HL);
     buildMI(MBB, MBBI, I8085::POP).addReg(I8085::BC, RegState::Define);
     buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::C);
     buildMI(MBB, MBBI, I8085::INX).addReg(I8085::HL, RegState::Define).addReg(I8085::HL);
     buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::B);
-    buildMI(MBB, MBBI, I8085::POP).addReg(I8085::BC, RegState::Define);
+    if (PreserveBC)
+      buildMI(MBB, MBBI, I8085::POP).addReg(I8085::BC, RegState::Define);
     MI.eraseFromParent();
     return true;
   }
