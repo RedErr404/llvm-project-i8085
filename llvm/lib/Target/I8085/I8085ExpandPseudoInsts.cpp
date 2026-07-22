@@ -851,6 +851,29 @@ bool I8085ExpandPseudo::expand<I8085::STORE_8>(Block &MBB, BlockIt MBBI) {
   unsigned baseReg = MI.getOperand(0).getReg();
   int64_t offsetToStore = MI.getOperand(1).getImm();
 
+  // Undoc fast path for frame-slot stores: [MOV A,src ;] LDSI off ; STAX D is
+  // at most 3 bytes against LXI H,off ; DAD SP ; MOV M,src (5 bytes, plus a
+  // PUSH/POP H pair when HL is live). Same guards as
+  // STORE_8_AT_OFFSET_WITH_SP: LDSI clobbers all of DE, and A is the staging
+  // temp, so it must be dead unless it is itself the source.
+  if (HasUndoc && baseReg == I8085::SP && offsetToStore >= 0 &&
+      offsetToStore <= 255) {
+    bool DEOk = !isPhysRegLive(MBB, MBBI, I8085::D) &&
+                !isPhysRegLive(MBB, MBBI, I8085::E) &&
+                !isPhysRegLive(MBB, MBBI, I8085::DE);
+    bool AOk = srcReg == I8085::A || !isPhysRegLive(MBB, MBBI, I8085::A);
+    if (DEOk && AOk) {
+      if (srcReg != I8085::A)
+        buildMI(MBB, MBBI, I8085::MOV)
+            .addReg(I8085::A, RegState::Define)
+            .addReg(srcReg);
+      buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToStore);
+      buildMI(MBB, MBBI, I8085::STAX).addReg(I8085::DE);
+      MI.eraseFromParent();
+      return true;
+    }
+  }
+
   const bool PreserveHL = (baseReg != I8085::HL) &&
                           isHLOrSubRegLive(MBB, MBBI);
   const bool PreserveHLFromSP = PreserveHL && (baseReg == I8085::SP);
@@ -1076,11 +1099,32 @@ bool I8085ExpandPseudo::expand<I8085::STORE_16>(Block &MBB, BlockIt MBBI) {
   // forward, which is smaller than emitting two independent LXI/DAD pairs.
   if (tryExpandAdjacentStore16Pair(MBB, MBBI))
     return true;
-  
+
   unsigned lowReg,highReg;
   unsigned baseReg = MI.getOperand(0).getReg();
   int64_t offsetToStore = MI.getOperand(1).getImm();
   unsigned destReg = MI.getOperand(2).getReg();
+
+  // Undoc fast path for frame-slot stores: LDSI off ; SHLX is 3 bytes and
+  // touches no flags, against LXI H,off ; DAD SP ; MOV M,lo ; INX H ; MOV M,hi
+  // (7 bytes, plus a PUSH/POP H pair when HL is live). Same shape and same
+  // guards as STORE_16_AT_OFFSET_WITH_SP: LDSI clobbers all of DE, and staging
+  // a non-HL source through HL clobbers HL.
+  if (HasUndoc && baseReg == I8085::SP && offsetToStore >= 0 &&
+      offsetToStore <= 255) {
+    bool DEOk = !isPhysRegLive(MBB, MBBI, I8085::D) &&
+                !isPhysRegLive(MBB, MBBI, I8085::E) &&
+                !isPhysRegLive(MBB, MBBI, I8085::DE);
+    bool HLOk = destReg == I8085::HL || !isHLOrSubRegLive(MBB, MBBI);
+    if (DEOk && HLOk && getPairRegs(destReg, lowReg, highReg)) {
+      if (destReg != I8085::HL)
+        buildMI(MBB, MBBI, TargetOpcode::COPY, I8085::HL).addReg(destReg);
+      buildMI(MBB, MBBI, I8085::LDSI).addImm(offsetToStore);
+      buildMI(MBB, MBBI, I8085::SHLX);
+      MI.eraseFromParent();
+      return true;
+    }
+  }
 
   auto addOffsetToHL = [&](int64_t Offset) {
     if (Offset > 0) {

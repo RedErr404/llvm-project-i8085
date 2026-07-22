@@ -1,0 +1,122 @@
+# RUN: llc -O0 -mattr=+undoc -run-pass=i8085-expand-pseudo %s -o - | FileCheck %s
+# RUN: llc -O0 -run-pass=i8085-expand-pseudo %s -o - | FileCheck %s --check-prefix=PLAIN
+
+# STORE_16/STORE_8 with an SP base are frame-slot stores. They had no undoc
+# fast path, unlike their STORE_*_AT_OFFSET_WITH_SP siblings, so every frame
+# store paid LXI H,k; DAD SP plus a byte-wise MOV M chain. LDSI+SHLX (16-bit)
+# and LDSI+STAX D (8-bit) do the same job in 3 bytes and touch no flags.
+# LDSI clobbers all of DE, SHLX clobbers nothing else, and staging a non-HL
+# source through HL clobbers HL -- so the same liveness guards apply as in the
+# sibling paths.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @store16_src_hl() { ret void }
+  define void @store16_src_bc() { ret void }
+  define void @store16_de_live() { ret void }
+  define void @store16_hl_live() { ret void }
+  define void @store8_src_a() { ret void }
+  define void @store8_src_b() { ret void }
+  define void @store8_a_live() { ret void }
+...
+---
+name:            store16_src_hl
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $sp, $hl
+    ; Source already in HL and DE dead: LDSI + SHLX, nothing else.
+    ; CHECK-LABEL: name: store16_src_hl
+    ; CHECK: LDSI 6
+    ; CHECK-NEXT: SHLX
+    ; CHECK-NOT: DAD $sp
+    ; PLAIN-LABEL: name: store16_src_hl
+    ; PLAIN-NOT: LDSI
+    ; PLAIN: DAD $sp
+    STORE_16 $sp, 6, $hl, implicit $sp
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            store16_src_bc
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $sp, $bc
+    ; Source in BC and both DE and HL dead: stage through HL, then LDSI+SHLX.
+    ; CHECK-LABEL: name: store16_src_bc
+    ; CHECK: $hl = COPY $bc
+    ; CHECK-NEXT: LDSI 8
+    ; CHECK-NEXT: SHLX
+    STORE_16 $sp, 8, $bc, implicit $sp
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            store16_de_live
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $sp, $hl, $de
+    ; DE is live afterwards; LDSI would destroy it -> portable path.
+    ; CHECK-LABEL: name: store16_de_live
+    ; CHECK-NOT: LDSI
+    ; CHECK: DAD $sp
+    STORE_16 $sp, 6, $hl, implicit $sp
+    $a = MOV $e
+    RET implicit $sp, implicit-def $sp, implicit $a
+...
+---
+name:            store16_hl_live
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $sp, $bc, $hl
+    ; Staging BC through HL would destroy a live HL -> portable path.
+    ; CHECK-LABEL: name: store16_hl_live
+    ; CHECK-NOT: SHLX
+    ; CHECK: DAD $sp
+    STORE_16 $sp, 8, $bc, implicit $sp
+    $a = MOV $h
+    RET implicit $sp, implicit-def $sp, implicit $a
+...
+---
+name:            store8_src_a
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $sp, $a
+    ; Source already in A and DE dead: LDSI + STAX D.
+    ; CHECK-LABEL: name: store8_src_a
+    ; CHECK: LDSI 3
+    ; CHECK-NEXT: STAX $de
+    ; CHECK-NOT: DAD $sp
+    STORE_8 $sp, 3, $a, implicit $sp
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            store8_src_b
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $sp, $b
+    ; Source in B, A dead: MOV A,B then LDSI + STAX D.
+    ; CHECK-LABEL: name: store8_src_b
+    ; CHECK: $a = MOV $b
+    ; CHECK-NEXT: LDSI 5
+    ; CHECK-NEXT: STAX $de
+    STORE_8 $sp, 5, $b, implicit $sp
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            store8_a_live
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $sp, $b, $a
+    ; A is live afterwards and is needed as the staging temp -> portable path.
+    ; CHECK-LABEL: name: store8_a_live
+    ; CHECK-NOT: STAX
+    ; CHECK: DAD $sp
+    STORE_8 $sp, 5, $b, implicit $sp
+    $c = MOV $a
+    RET implicit $sp, implicit-def $sp, implicit $c
+...
