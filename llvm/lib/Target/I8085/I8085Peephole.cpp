@@ -538,6 +538,25 @@ public:
   // no-op and is erased (MOV touches no flags, so this is always safe). Any
   // other def - a 16-bit def like LXI H / INX H / DAD, an ALU def of A, or a
   // load `MOV r,M` - invalidates every overlapping leaf.
+  // Clear kill flags on uses of Reg in the instructions preceding Pos, walking
+  // back to (and including) the last instruction that defines Reg -- earlier
+  // kills belong to a different value and must be left alone.
+  static void clearStaleKills(MachineBasicBlock &MBB,
+                              MachineBasicBlock::iterator Pos, unsigned Reg,
+                              const TargetRegisterInfo *TRI) {
+    for (auto I = Pos; I != MBB.begin();) {
+      --I;
+      for (MachineOperand &MO : I->operands()) {
+        if (!MO.isReg() || !MO.getReg() || !TRI->regsOverlap(MO.getReg(), Reg))
+          continue;
+        if (MO.isUse())
+          MO.setIsKill(false);
+      }
+      if (I->modifiesRegister(Reg, TRI))
+        return;
+    }
+  }
+
   bool eliminateRedundantMoves(MachineBasicBlock &MBB,
                                const TargetRegisterInfo *TRI) {
     static const unsigned Leaves[7] = {I8085::A, I8085::B, I8085::C, I8085::D,
@@ -570,7 +589,12 @@ public:
         if (di >= 0 && si >= 0) {
           // Pure leaf-to-leaf copy (neither operand is the memory pseudo M).
           if (Val[di] == Val[si]) {
-            It = MBB.erase(It); // dst already holds src's value: redundant.
+            // dst already holds src's value: redundant.  Dropping this
+            // instruction extends dst's live range past it, so any kill flag on
+            // an earlier use of dst is now stale -- the killed value is read
+            // again downstream.  Clear those back to dst's last definition.
+            clearStaleKills(MBB, It, MI.getOperand(0).getReg(), TRI);
+            It = MBB.erase(It);
             Changed = true;
             continue;
           }

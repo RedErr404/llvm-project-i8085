@@ -1,0 +1,44 @@
+# RUN: llc -O0 -run-pass=i8085-expand-pseudo32 %s -o - | FileCheck %s
+
+# A GR32 pseudo with a live implicit-def $hl is wrapped in PUSH H / POP H, but
+# only if HL actually holds something worth saving.  The reaching-definition
+# test backing that veto must ignore *dead* defs: an instruction that defines HL
+# and immediately kills it (FRMIDX's scratch use of H/L, a call's clobber list)
+# leaves no value behind, so treating it as a definition makes the expansion
+# push an undefined HL.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @only_dead_hl_defs() { ret void }
+  define void @real_hl_def() { ret void }
+...
+
+---
+name:            only_dead_hl_defs
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $sp
+    ; The only preceding HL def is dead, so there is no value to preserve.
+    ; CHECK-LABEL: name: only_dead_hl_defs
+    ; CHECK-NOT: PUSH $hl
+    $bc = FRMIDX $sp, 8, implicit-def dead $sreg, implicit-def dead $h, implicit-def dead $l
+    $iax = MVI_32 1, implicit-def $a, implicit-def $hl
+    RET implicit $sp, implicit-def $sp, implicit $bc
+...
+
+---
+name:            real_hl_def
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $sp
+    ; Here HL holds a real value that is read after the pseudo, so the save
+    ; must still be emitted.
+    ; CHECK-LABEL: name: real_hl_def
+    ; CHECK: PUSH $hl
+    $hl = LXI 5
+    $iax = MVI_32 1, implicit-def $a, implicit-def $hl
+    $a = MOV $h
+    RET implicit $sp, implicit-def $sp, implicit $a
+...

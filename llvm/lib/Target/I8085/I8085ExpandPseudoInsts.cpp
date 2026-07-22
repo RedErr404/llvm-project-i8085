@@ -94,14 +94,23 @@ private:
 
     for (auto I = MBBI; I != MBB.begin();) {
       --I;
+      bool DeadDef = false;
       for (const MachineOperand &MO : I->operands()) {
         if (!MO.isReg() || !MO.isDef())
           continue;
         Register DefReg = MO.getReg();
-        if (DefReg == Reg || TRI->isSubRegisterEq(DefReg, Reg) ||
-            TRI->isSubRegisterEq(Reg, DefReg))
+        if (DefReg != Reg && !TRI->isSubRegisterEq(DefReg, Reg) &&
+            !TRI->isSubRegisterEq(Reg, DefReg))
+          continue;
+        if (!MO.isDead())
           return true;
+        DeadDef = true;
       }
+      // A dead def both defines and kills the register (FRMIDX's scratch use of
+      // H/L, a call's clobber list), so it leaves no value behind -- and it
+      // hides whatever earlier definition this walk would otherwise have found.
+      if (DeadDef)
+        return false;
     }
 
     return false;
