@@ -93,15 +93,21 @@ private:
   bool binOperationWithImmediateOperand(unsigned opCode, Block &MBB, BlockIt MBBI);
   bool binOperation(unsigned opCode, Block &MBB, BlockIt MBBI);
   int64_t getScratchOffset(unsigned Reg, int ByteIndex) const;
-  void emitScratchAddr(Block &MBB, BlockIt MBBI, unsigned Reg, int ByteIndex);
+  // Every access to the GR32 scratch area goes through these.  Nothing else in
+  // this file may compute a scratch address itself: keeping them the single
+  // choke point is what makes it possible to change where the area lives (see
+  // the note on getScratchOffset).  SpBias compensates for bytes pushed after
+  // the offset was computed, e.g. a PUSH PSW in the middle of a sequence.
+  void emitScratchAddr(Block &MBB, BlockIt MBBI, unsigned Reg, int ByteIndex,
+                       int SpBias = 0);
   void emitScratchAddr(Block &MBB, const DebugLoc &DL, unsigned Reg,
-                       int ByteIndex);
+                       int ByteIndex, int SpBias = 0);
   void emitScratchLoad(Block &MBB, BlockIt MBBI, unsigned Reg, int ByteIndex,
-                       unsigned DestReg);
+                       unsigned DestReg, int SpBias = 0);
   void emitScratchLoad(Block &MBB, const DebugLoc &DL, unsigned Reg,
                        int ByteIndex, unsigned DestReg);
   void emitScratchStore(Block &MBB, BlockIt MBBI, unsigned Reg, int ByteIndex,
-                        unsigned SrcReg);
+                        unsigned SrcReg, int SpBias = 0);
   void emitScratchAdvance(Block &MBB, BlockIt MBBI, int Delta);
 
   /// Check whether the next GR32 pseudo after MBBI can consume forwarded
@@ -220,6 +226,17 @@ static bool getPairRegs(unsigned Pair, unsigned &LowReg, unsigned &HighReg) {
   }
 }
 
+// Byte address of one byte of a GR32 imaginary register, relative to SP.
+//
+// This is the ONLY place that knows where the scratch area lives, and it is
+// reached only through emitScratchAddr / emitScratchLoad / emitScratchStore.
+// Keep it that way: relocating the area (e.g. to a fixed address for
+// non-recursive functions, which removes the DAD SP and lets byte traffic use
+// LDA/STA) is a change to those four functions and nothing else.  Note that
+// several places in this file *do* legitimately emit `LXI H,off ; DAD SP`
+// without going through here -- those address the pseudo's own memory operand
+// (offsetToLoad / offsetToStore / HLSaveBias), not the scratch area, and must
+// stay SP-relative.
 int64_t I8085ExpandPseudo32::getScratchOffset(unsigned Reg,
                                               int ByteIndex) const {
   assert(HaveScratch && "GR32 scratch not initialized");
@@ -231,8 +248,9 @@ int64_t I8085ExpandPseudo32::getScratchOffset(unsigned Reg,
 }
 
 void I8085ExpandPseudo32::emitScratchAddr(Block &MBB, BlockIt MBBI,
-                                          unsigned Reg, int ByteIndex) {
-  int64_t Offset = getScratchOffset(Reg, ByteIndex);
+                                          unsigned Reg, int ByteIndex,
+                                          int SpBias) {
+  int64_t Offset = getScratchOffset(Reg, ByteIndex) + SpBias;
   buildMI(MBB, MBBI, I8085::LXI)
       .addReg(I8085::HL, RegState::Define)
       .addImm(Offset);
@@ -240,8 +258,9 @@ void I8085ExpandPseudo32::emitScratchAddr(Block &MBB, BlockIt MBBI,
 }
 
 void I8085ExpandPseudo32::emitScratchAddr(Block &MBB, const DebugLoc &DL,
-                                          unsigned Reg, int ByteIndex) {
-  int64_t Offset = getScratchOffset(Reg, ByteIndex);
+                                          unsigned Reg, int ByteIndex,
+                                          int SpBias) {
+  int64_t Offset = getScratchOffset(Reg, ByteIndex) + SpBias;
   BuildMI(&MBB, DL, TII->get(I8085::LXI))
       .addReg(I8085::HL, RegState::Define)
       .addImm(Offset);
@@ -250,8 +269,8 @@ void I8085ExpandPseudo32::emitScratchAddr(Block &MBB, const DebugLoc &DL,
 
 void I8085ExpandPseudo32::emitScratchLoad(Block &MBB, BlockIt MBBI,
                                           unsigned Reg, int ByteIndex,
-                                          unsigned DestReg) {
-  emitScratchAddr(MBB, MBBI, Reg, ByteIndex);
+                                          unsigned DestReg, int SpBias) {
+  emitScratchAddr(MBB, MBBI, Reg, ByteIndex, SpBias);
   buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(DestReg, RegState::Define);
 }
 
@@ -265,8 +284,8 @@ void I8085ExpandPseudo32::emitScratchLoad(Block &MBB, const DebugLoc &DL,
 
 void I8085ExpandPseudo32::emitScratchStore(Block &MBB, BlockIt MBBI,
                                            unsigned Reg, int ByteIndex,
-                                           unsigned SrcReg) {
-  emitScratchAddr(MBB, MBBI, Reg, ByteIndex);
+                                           unsigned SrcReg, int SpBias) {
+  emitScratchAddr(MBB, MBBI, Reg, ByteIndex, SpBias);
   buildMI(MBB, MBBI, I8085::MOV_M).addReg(SrcReg);
 }
 
@@ -998,12 +1017,7 @@ template <> bool I8085ExpandPseudo32::expand<I8085::STORE_32_ADDR_CONTENT>(Block
 
   auto emitScratchLoadWithBias = [&](int SpBias, unsigned Reg, int ByteIndex,
                                      unsigned DestReg) {
-    int64_t Offset = getScratchOffset(Reg, ByteIndex) + SpBias;
-    buildMI(MBB, MBBI, I8085::LXI)
-        .addReg(I8085::HL, RegState::Define)
-        .addImm(Offset);
-    buildMI(MBB, MBBI, I8085::DAD).addReg(I8085::SP);
-    buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(DestReg, RegState::Define);
+    emitScratchLoad(MBB, MBBI, Reg, ByteIndex, DestReg, SpBias);
   };
 
   if (addrIsHL)
@@ -1787,12 +1801,7 @@ template <> bool I8085ExpandPseudo32::expand<I8085::LOAD_32_WITH_ADDR>(Block &MB
       buildMI(MBB, MBBI, I8085::DAD).addReg(baseReg);
       buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::A,RegState::Define);
       // Use biased scratch store to account for PUSH PSW SP shift.
-      int64_t ScratchOff = getScratchOffset(destReg, i) + SpBias;
-      buildMI(MBB, MBBI, I8085::LXI)
-          .addReg(I8085::HL, RegState::Define)
-          .addImm(ScratchOff);
-      buildMI(MBB, MBBI, I8085::DAD).addReg(I8085::SP);
-      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::A);
+      emitScratchStore(MBB, MBBI, destReg, i, I8085::A, SpBias);
     }
     if (PreserveA)
       buildMI(MBB, MBBI, I8085::POP).addReg(I8085::PSW, RegState::Define);
@@ -2223,12 +2232,7 @@ template <> bool I8085ExpandPseudo32::expand<I8085::LOAD_32_OFFSET_WITH_SP>(Bloc
       buildMI(MBB, MBBI, I8085::LXI).addReg(I8085::HL,RegState::Define).addImm(offsetToLoad+i);
       buildMI(MBB, MBBI, I8085::DAD).addReg(I8085::SP);
       buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::A,RegState::Define);
-      int64_t ScratchOff = getScratchOffset(destReg, i) + SpBias;
-      buildMI(MBB, MBBI, I8085::LXI)
-          .addReg(I8085::HL, RegState::Define)
-          .addImm(ScratchOff);
-      buildMI(MBB, MBBI, I8085::DAD).addReg(I8085::SP);
-      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::A);
+      emitScratchStore(MBB, MBBI, destReg, i, I8085::A, SpBias);
     }
     if (PreserveA)
       buildMI(MBB, MBBI, I8085::POP).addReg(I8085::PSW, RegState::Define);
@@ -2307,12 +2311,7 @@ template <> bool I8085ExpandPseudo32::expand<I8085::LOAD_32_WITH_IMM_ADDR>(Block
           buildMI(MBB, MBBI, I8085::LXI).addReg(I8085::HL, RegState::Define);
       addAddrOperand(Addr, AddrMO, i);
       buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::A,RegState::Define);
-      int64_t ScratchOff = getScratchOffset(destReg, i) + SpBias;
-      buildMI(MBB, MBBI, I8085::LXI)
-          .addReg(I8085::HL, RegState::Define)
-          .addImm(ScratchOff);
-      buildMI(MBB, MBBI, I8085::DAD).addReg(I8085::SP);
-      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::A);
+      emitScratchStore(MBB, MBBI, destReg, i, I8085::A, SpBias);
     }
     if (PreserveA)
       buildMI(MBB, MBBI, I8085::POP).addReg(I8085::PSW, RegState::Define);
