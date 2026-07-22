@@ -1,0 +1,105 @@
+# RUN: llc -run-pass=i8085-peephole %s -o - | FileCheck %s
+
+# A 16-bit copy between HL and DE is emitted as two MOVs (2 bytes, 10 T-states).
+# XCHG does it in 1 byte / 4 T-states -- but it *swaps*, so the destination
+# pair's old value lands in the source pair. That is only acceptable when the
+# pair being overwritten is dead afterwards. Both operand orders are safe to
+# match: the source and destination pairs are disjoint, so the second MOV can
+# never read a register the first one wrote.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @hl_to_de() { ret void }
+  define void @hl_to_de_reversed() { ret void }
+  define void @de_to_hl() { ret void }
+  define void @hl_live_after() { ret void }
+  define void @de_live_after() { ret void }
+  define void @not_a_pair_copy() { ret void }
+...
+---
+name:            hl_to_de
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $hl
+    ; DE := HL, and HL is dead afterwards -> XCHG.
+    ; CHECK-LABEL: name: hl_to_de
+    ; CHECK: XCHG
+    ; CHECK-NOT: MOV $l
+    ; CHECK-NOT: MOV $h
+    $e = MOV $l
+    $d = MOV $h
+    RET implicit $sp, implicit-def $sp, implicit $de
+...
+---
+name:            hl_to_de_reversed
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $hl
+    ; Same copy, other operand order.
+    ; CHECK-LABEL: name: hl_to_de_reversed
+    ; CHECK: XCHG
+    ; CHECK-NOT: MOV
+    $d = MOV $h
+    $e = MOV $l
+    RET implicit $sp, implicit-def $sp, implicit $de
+...
+---
+name:            de_to_hl
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $de
+    ; HL := DE, and DE is dead afterwards -> XCHG.
+    ; CHECK-LABEL: name: de_to_hl
+    ; CHECK: XCHG
+    ; CHECK-NOT: MOV
+    $l = MOV $e
+    $h = MOV $d
+    RET implicit $sp, implicit-def $sp, implicit $hl
+...
+---
+name:            hl_live_after
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $hl
+    ; HL is still read after the copy; XCHG would clobber it with the old DE.
+    ; CHECK-LABEL: name: hl_live_after
+    ; CHECK-NOT: XCHG
+    ; CHECK: $e = MOV $l
+    $e = MOV $l
+    $d = MOV $h
+    $a = MOV $h
+    RET implicit $sp, implicit-def $sp, implicit $de, implicit $a
+...
+---
+name:            de_live_after
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $de
+    ; Mirror case: DE is still read after HL := DE.
+    ; CHECK-LABEL: name: de_live_after
+    ; CHECK-NOT: XCHG
+    ; CHECK: $l = MOV $e
+    $l = MOV $e
+    $h = MOV $d
+    $a = MOV $e
+    RET implicit $sp, implicit-def $sp, implicit $hl, implicit $a
+...
+---
+name:            not_a_pair_copy
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $hl
+    ; Only half of the pair is copied -- not an exchange.
+    ; CHECK-LABEL: name: not_a_pair_copy
+    ; CHECK-NOT: XCHG
+    ; CHECK: $e = MOV $l
+    $e = MOV $l
+    $c = MOV $h
+    RET implicit $sp, implicit-def $sp, implicit $de, implicit $c
+...

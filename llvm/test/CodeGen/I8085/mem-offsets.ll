@@ -43,8 +43,7 @@ define i16 @stack_large_i16() {
 ; CHECK-NEXT:    LXI B, 4097
 ; CHECK-NEXT:    LXI H, 0
 ; CHECK-NEXT:    DAD SP
-; CHECK-NEXT:    MOV D, H
-; CHECK-NEXT:    MOV E, L
+; CHECK-NEXT:    XCHG
 ; CHECK-NEXT:    LXI H, 240
 ; CHECK-NEXT:    DAD D
 ; CHECK-NEXT:    MOV M, C

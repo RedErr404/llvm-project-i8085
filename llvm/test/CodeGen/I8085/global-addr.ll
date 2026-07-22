@@ -38,8 +38,7 @@ define i16 @load_globals() {
 ; CHECK-NEXT:    MOV C, A
 ; CHECK-NEXT:    MVI B, 0
 ; CHECK-NEXT:    LHLD g16
-; CHECK-NEXT:    MOV E, L
-; CHECK-NEXT:    MOV D, H
+; CHECK-NEXT:    XCHG
 ; CHECK-NEXT:    ADD E
 ; CHECK-NEXT:    MOV C, A
 ; CHECK-NEXT:    MOV A, B

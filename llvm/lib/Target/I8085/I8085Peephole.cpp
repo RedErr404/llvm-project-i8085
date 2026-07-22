@@ -465,6 +465,10 @@ public:
 
       Changed |= storeToLoadForward(MBB, TII);
       Changed |= eliminateRedundantMoves(MBB, TRI);
+      // After redundant-copy elimination: a copy-back pair that is about to be
+      // deleted outright must not be turned into an XCHG first, which would
+      // leave three instructions where zero were needed.
+      Changed |= pairCopyToXchg(MBB, TRI, TII);
       Changed |= mviZeroToXra(MBB, TRI, TII);
       Changed |= undocStoreThroughDE(MBB, MF);
       Changed |= undocLoadOffThroughHL(MBB, MF);
@@ -479,6 +483,75 @@ public:
   // When y==x the load is fully redundant and is dropped; otherwise it becomes
   // a register copy `MOV y,x` (no memory access, 2 T-states cheaper, and it
   // feeds the redundant-copy pass below).  The store is left in place.
+  // A 16-bit copy between HL and DE comes out of expansion as two MOVs
+  // (2 bytes / 10 T-states).  XCHG does it in 1 byte / 4 T-states, but it
+  // *swaps*: the destination pair's old value ends up in the source pair.  So
+  // it may only replace a copy when the pair being overwritten is dead
+  // afterwards.  Both operand orders are matched -- the source and destination
+  // pairs are disjoint, so the second MOV can never read what the first wrote.
+  bool pairCopyToXchg(MachineBasicBlock &MBB, const TargetRegisterInfo *TRI,
+                      const TargetInstrInfo *TII) {
+    auto isMovBetween = [](const MachineInstr &MI, unsigned Dst, unsigned Src) {
+      return MI.getOpcode() == I8085::MOV && MI.getNumOperands() >= 2 &&
+             MI.getOperand(0).isReg() && MI.getOperand(1).isReg() &&
+             MI.getOperand(0).getReg() == Dst &&
+             MI.getOperand(1).getReg() == Src;
+    };
+
+    bool Changed = false;
+    for (auto It = MBB.begin(); It != MBB.end();) {
+      auto Nxt = std::next(It);
+      if (Nxt == MBB.end())
+        break;
+
+      // DE := HL needs HL dead after; HL := DE needs DE dead after.
+      bool ToDE = (isMovBetween(*It, I8085::E, I8085::L) &&
+                   isMovBetween(*Nxt, I8085::D, I8085::H)) ||
+                  (isMovBetween(*It, I8085::D, I8085::H) &&
+                   isMovBetween(*Nxt, I8085::E, I8085::L));
+      bool ToHL = (isMovBetween(*It, I8085::L, I8085::E) &&
+                   isMovBetween(*Nxt, I8085::H, I8085::D)) ||
+                  (isMovBetween(*It, I8085::H, I8085::D) &&
+                   isMovBetween(*Nxt, I8085::L, I8085::E));
+      if (!ToDE && !ToHL) {
+        ++It;
+        continue;
+      }
+
+      // Liveness after the second MOV.
+      LivePhysRegs Live(*TRI);
+      Live.addLiveOuts(MBB);
+      for (MachineInstr &MI : llvm::reverse(MBB)) {
+        if (&MI == &*Nxt)
+          break;
+        Live.stepBackward(MI);
+      }
+      unsigned HiClobbered = ToDE ? I8085::H : I8085::D;
+      unsigned LoClobbered = ToDE ? I8085::L : I8085::E;
+      if (Live.contains(HiClobbered) || Live.contains(LoClobbered)) {
+        ++It;
+        continue;
+      }
+
+      MachineInstr *X =
+          BuildMI(MBB, It, It->getDebugLoc(), TII->get(I8085::XCHG));
+      // XCHG reads both pairs, but the copy it replaces only ever read its
+      // source pair -- the destination pair's incoming value is whatever
+      // happened to be there.  Mark those reads undef so the verifier does not
+      // (correctly) flag a use of an undefined register.
+      for (unsigned Reg : {HiClobbered == I8085::H ? I8085::D : I8085::H,
+                           LoClobbered == I8085::L ? I8085::E : I8085::L})
+        if (MachineOperand *MO = X->findRegisterUseOperand(Reg, TRI))
+          MO->setIsUndef(true);
+      auto After = std::next(Nxt);
+      Nxt->eraseFromParent();
+      It->eraseFromParent();
+      It = After;
+      Changed = true;
+    }
+    return Changed;
+  }
+
   bool storeToLoadForward(MachineBasicBlock &MBB, const TargetInstrInfo *TII) {
     bool Changed = false;
     for (auto It = MBB.begin(); It != MBB.end(); ++It) {
