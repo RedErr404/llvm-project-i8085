@@ -186,6 +186,35 @@ private:
     return false;
   }
 
+  // Conservative liveness test for the BC scratch pair, used to decide whether
+  // an expansion that borrows BC must save/restore it.  BC is reported dead only
+  // when a forward scan positively proves it -- both halves overwritten before
+  // either is read -- because several pseudos deliberately do not declare the
+  // registers their expansion clobbers (see the STORE_16 / LOAD_*_WITH_ADDR
+  // comments in I8085InstrInfo.td), so the backward walk alone can under-report.
+  // Anything less (a read, a terminator, or the end of the block) reports live.
+  bool isBCOrSubRegLive(Block &MBB, BlockIt MBBI) const {
+    if (isPhysRegLive(MBB, MBBI, I8085::BC) ||
+        isPhysRegLive(MBB, MBBI, I8085::B) ||
+        isPhysRegLive(MBB, MBBI, I8085::C))
+      return true;
+    bool DefB = false, DefC = false;
+    for (auto I = std::next(MBBI), E = MBB.end(); I != E; ++I) {
+      if ((!DefB && I->readsRegister(I8085::B, TRI)) ||
+          (!DefC && I->readsRegister(I8085::C, TRI)))
+        return true; // the incoming value is observed
+      if (I->modifiesRegister(I8085::B, TRI))
+        DefB = true;
+      if (I->modifiesRegister(I8085::C, TRI))
+        DefC = true;
+      if (DefB && DefC)
+        return false; // fully overwritten before any read -> dead
+      if (I->isTerminator())
+        return true; // may be live in a successor
+    }
+    return true; // reached the block end without a full redefinition
+  }
+
   bool shouldPreservePSW(Block &MBB, BlockIt MBBI) const {
     return isPhysRegLive(MBB, MBBI, I8085::A) ||
            isPhysRegLive(MBB, MBBI, I8085::SREG);
@@ -1038,11 +1067,18 @@ bool I8085ExpandPseudo::expand<I8085::STORE_16>(Block &MBB, BlockIt MBBI) {
     // DAD clobbers carry.  Preserve PSW when flags are live.
     const bool UseDAD = (baseReg != I8085::HL);
     const bool PreservePSW16HL = UseDAD && isPhysRegLive(MBB, MBBI, I8085::SREG);
+    // BC is borrowed as a scratch to shuttle the stored value through the stack.
+    // Only save/restore it when its incoming value is live: pushing a dead BC
+    // reads an undefined register and costs a pointless PUSH/POP.
+    const bool PreserveBC = isBCOrSubRegLive(MBB, MBBI);
     int64_t addrOffset = offsetToStore;
+    // Compensate for the bytes pushed before the SP-relative address is formed
+    // (PUSH BC is now conditional, so this is 4 or 2, plus 2 more for PSW below).
     if (baseReg == I8085::SP)
-      addrOffset += 4;
+      addrOffset += PreserveBC ? 4 : 2;
 
-    buildMI(MBB, MBBI, I8085::PUSH).addReg(I8085::BC);
+    if (PreserveBC)
+      buildMI(MBB, MBBI, I8085::PUSH).addReg(I8085::BC);
     buildMI(MBB, MBBI, I8085::PUSH).addReg(I8085::HL);
 
     if (PreservePSW16HL) {
@@ -1077,7 +1113,9 @@ bool I8085ExpandPseudo::expand<I8085::STORE_16>(Block &MBB, BlockIt MBBI) {
           .addReg(I8085::C);
     }
 
-    buildMI(MBB, MBBI, I8085::POP).addReg(I8085::BC, RegState::Define);
+    // Restore the borrowed BC only if it was saved above.
+    if (PreserveBC)
+      buildMI(MBB, MBBI, I8085::POP).addReg(I8085::BC, RegState::Define);
     MI.eraseFromParent();
     return true;
   }
