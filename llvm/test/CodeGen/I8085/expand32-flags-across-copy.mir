@@ -1,0 +1,50 @@
+# RUN: llc -run-pass=i8085-expand-pseudo32 %s -o - | FileCheck %s
+
+# The GR32 pseudos that do not declare Defs=[SREG] (MOV_32, loads/stores,
+# MVI_32, extends, PACK*) are flag-transparent, so the scheduler and phi
+# elimination may place one between a flag-setting compare and a flag-consuming
+# branch -- the loop-latch phi copy `$ibx = MOV_32 $iax` landing between the
+# `SBB` loop-exit test and the `JC` back-edge is the canonical case.  Their
+# expansion addresses scratch with `LXI H,off ; DAD SP`, and DAD clobbers carry.
+# So when SREG is live across such a pseudo the expander must save/restore PSW;
+# otherwise the branch reads a corrupted carry and the loop runs the wrong
+# number of times (observed: an i32/i64 accumulator loop reading only p[0]).
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @flags_live_across_mov32() { ret void }
+  define void @flags_dead_no_psw_save() { ret void }
+...
+---
+name:            flags_live_across_mov32
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.0, %bb.1
+    liveins: $iax, $sreg, $a, $b
+    ; SBB sets the loop-exit carry; the MOV_32 phi copy sits between it and the
+    ; JC that consumes it.  The MOV_32 expansion must be wrapped in PUSH PSW /
+    ; POP PSW so the DAD SP inside it does not destroy the carry.
+    ; CHECK-LABEL: name: flags_live_across_mov32
+    ; CHECK: SBB
+    ; CHECK: PUSH $psw
+    ; CHECK: $psw = POP
+    ; CHECK-NEXT: JC %bb.0
+    SBB $b, implicit-def $sreg, implicit-def dead $a, implicit $a, implicit killed $sreg
+    $ibx = MOV_32 $iax, implicit-def $a, implicit-def $hl
+    JC %bb.0, implicit $sreg
+  bb.1:
+    RET implicit $sp, implicit-def $sp
+...
+---
+name:            flags_dead_no_psw_save
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $iax
+    ; No live flags across the copy -> no PSW save (it would be pure overhead).
+    ; CHECK-LABEL: name: flags_dead_no_psw_save
+    ; CHECK-NOT: PUSH $psw
+    $ibx = MOV_32 $iax, implicit-def $a, implicit-def $hl
+    RET implicit $sp, implicit-def $sp
+...

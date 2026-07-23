@@ -849,6 +849,7 @@ define i8 @br_ult_i64(i64 %a, i64 %b) {
 ; CHECK-NEXT:    DCX H
 ; CHECK-NEXT:    DCX H
 ; CHECK-NEXT:    MOV M, A
+; CHECK-NEXT:    PUSH PSW
 ; CHECK-NEXT:    PUSH H
 ; CHECK-NEXT:    DCX H
 ; CHECK-NEXT:    DCX H
@@ -860,7 +861,7 @@ define i8 @br_ult_i64(i64 %a, i64 %b) {
 ; CHECK-NEXT:    MOV D, M
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV E, M
-; CHECK-NEXT:    LXI H, 10
+; CHECK-NEXT:    LXI H, 12
 ; CHECK-NEXT:    DAD SP
 ; CHECK-NEXT:    MOV M, B
 ; CHECK-NEXT:    INX H
@@ -870,6 +871,7 @@ define i8 @br_ult_i64(i64 %a, i64 %b) {
 ; CHECK-NEXT:    INX H
 ; CHECK-NEXT:    MOV M, E
 ; CHECK-NEXT:    POP H
+; CHECK-NEXT:    POP PSW
 ; CHECK-NEXT:    SBB A
 ; CHECK-NEXT:    INR A
 ; CHECK-NEXT:    MOV B, A

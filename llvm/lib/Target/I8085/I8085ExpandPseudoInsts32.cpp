@@ -2439,13 +2439,47 @@ bool I8085ExpandPseudo32::expandMI(Block &MBB, BlockIt MBBI) {
   if (NeedHLSave && !hasAvailableHLValue(MBB, MBBI))
     NeedHLSave = false;
 
+  // Check if the flags (SREG) must be preserved across this expansion.
+  //
+  // The GR32 pseudos that do NOT declare Defs=[SREG] (MOV_32, the loads and
+  // stores, MVI_32, the extends/truncates, PACK*, BSWAP32) are treated by the
+  // scheduler and phi-elimination as flag-transparent, so one can legally be
+  // placed between a flag-setting compare and a flag-consuming branch -- the
+  // classic case is the loop-latch phi copy `$ibx = MOV_32 $iax` that lands
+  // between the `SBB` loop-exit test and the `JC` back-edge.  But their
+  // expansion addresses the scratch area with `LXI H,off ; DAD SP`, and DAD
+  // clobbers carry.  So when SREG is live across such a pseudo we must save and
+  // restore it, exactly like HL above.  (Pseudos that DO declare Defs=[SREG]
+  // are excluded: the scheduler already knows they destroy flags, and wrapping
+  // them would be wrong.)
+  bool NeedPSWSave = false;
+  if (!MI.isBranch() && !MI.isTerminator()) {
+    bool DefinesSREG = false;
+    for (const MachineOperand &MO : MI.operands())
+      if (MO.isReg() && MO.isDef() && MO.getReg() == I8085::SREG) {
+        DefinesSREG = true;
+        break;
+      }
+    if (!DefinesSREG) {
+      LivePhysRegs LiveRegs(*TRI);
+      LiveRegs.addLiveOuts(MBB);
+      for (auto I = MBB.rbegin(), E = MBBI.getReverse(); I != E; ++I)
+        LiveRegs.stepBackward(*I);
+      NeedPSWSave = LiveRegs.contains(I8085::SREG);
+    }
+  }
+
   BlockIt AfterPseudo = std::next(MBBI);
   DebugLoc DL = MI.getDebugLoc();
 
-  if (NeedHLSave) {
+  // Emit the save prologue.  PSW is pushed first, HL second, so the LIFO
+  // restore below pops HL first and PSW last.  All SP-relative addressing in
+  // the expansion compensates for the pushed bytes through HLSaveBias.
+  if (NeedPSWSave)
+    buildMI(MBB, MBBI, I8085::PUSH).addReg(I8085::PSW);
+  if (NeedHLSave)
     buildMI(MBB, MBBI, I8085::PUSH).addReg(I8085::HL);
-    HLSaveBias = 2;
-  }
+  HLSaveBias = (NeedPSWSave ? 2 : 0) + (NeedHLSave ? 2 : 0);
 
 #define EXPAND(Op)                                                             \
   case Op:                                                                     \
@@ -2507,13 +2541,25 @@ bool I8085ExpandPseudo32::expandMI(Block &MBB, BlockIt MBBI) {
   }
 #undef EXPAND
 
-  if (NeedHLSave) {
+  if (NeedPSWSave || NeedHLSave) {
     if (result) {
-      BuildMI(MBB, AfterPseudo, DL, TII->get(I8085::POP))
-          .addReg(I8085::HL, RegState::Define);
+      // LIFO restore: HL was pushed last so it pops first; PSW pops last.
+      // Both are inserted before AfterPseudo, so inserting HL then PSW yields
+      // the order POP H, POP PSW.
+      if (NeedHLSave)
+        BuildMI(MBB, AfterPseudo, DL, TII->get(I8085::POP))
+            .addReg(I8085::HL, RegState::Define);
+      if (NeedPSWSave)
+        BuildMI(MBB, AfterPseudo, DL, TII->get(I8085::POP))
+            .addReg(I8085::PSW, RegState::Define);
     } else {
-      // Expansion didn't happen; remove the PUSH H we inserted.
-      std::prev(MBBI)->eraseFromParent();
+      // Expansion didn't happen; remove the pushes we inserted.  They sit
+      // immediately before MBBI in the order PUSH PSW, PUSH H, so erasing the
+      // predecessor twice removes H then PSW.
+      if (NeedHLSave)
+        std::prev(MBBI)->eraseFromParent();
+      if (NeedPSWSave)
+        std::prev(MBBI)->eraseFromParent();
     }
     HLSaveBias = 0;
   }
