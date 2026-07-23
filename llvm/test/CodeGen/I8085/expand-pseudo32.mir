@@ -17,11 +17,11 @@ body:             |
     ; CHECK-NEXT: $hl = LXI 0
     ; CHECK-NEXT: DAD $sp, implicit-def $sreg, implicit-def $h, implicit-def $l, implicit $h, implicit $l
     ; CHECK-NEXT: MVI_M 4, implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $hl = INX $hl
     ; CHECK-NEXT: MVI_M 3, implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $hl = INX $hl
     ; CHECK-NEXT: MVI_M 2, implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $hl = INX $hl
     ; CHECK-NEXT: MVI_M 1, implicit $h, implicit $l
     ; CHECK-NEXT: RET implicit $sp, implicit-def $sp
     $iax = MVI_32 16909060, implicit-def $a, implicit-def $hl
@@ -40,53 +40,39 @@ body:             |
     ; CHECK-NEXT: $ibx = IMPLICIT_DEF
     ; CHECK-NEXT: $hl = LXI 0
     ; CHECK-NEXT: DAD $sp, implicit-def $sreg, implicit-def $h, implicit-def $l, implicit $h, implicit $l
-    ; CHECK-NEXT: $a = MOV_FROM_M implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $b = MOV_FROM_M implicit $h, implicit $l
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $c = MOV_FROM_M implicit $h, implicit $l
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $d = MOV_FROM_M implicit $h, implicit $l
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $e = MOV_FROM_M implicit $h, implicit $l
+    ; CHECK-NEXT: $hl = LXI 4
+    ; CHECK-NEXT: DAD $sp, implicit-def $sreg, implicit-def $h, implicit-def $l, implicit $h, implicit $l
+    ; CHECK-NEXT: $a = MOV $b
     ; CHECK-NEXT: ADD_M implicit-def $sreg, implicit-def $a, implicit $h, implicit $l, implicit $a
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: MOV_M $a, implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $a = MOV_FROM_M implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $b = MOV $a
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $a = MOV $c
     ; CHECK-NEXT: ADC_M implicit-def $sreg, implicit-def $a, implicit $h, implicit $l, implicit $a, implicit $sreg
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: MOV_M $a, implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $a = MOV_FROM_M implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $c = MOV $a
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $a = MOV $d
     ; CHECK-NEXT: ADC_M implicit-def $sreg, implicit-def $a, implicit $h, implicit $l, implicit $a, implicit $sreg
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: MOV_M $a, implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $a = MOV_FROM_M implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $d = MOV $a
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $a = MOV $e
     ; CHECK-NEXT: ADC_M implicit-def $sreg, implicit-def $a, implicit $h, implicit $l, implicit $a, implicit $sreg
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: MOV_M $a, implicit $h, implicit $l
+    ; CHECK-NEXT: $e = MOV $a
+    ; CHECK-NEXT: $hl = LXI 0
+    ; CHECK-NEXT: DAD $sp, implicit-def $sreg, implicit-def $h, implicit-def $l, implicit $h, implicit $l
+    ; CHECK-NEXT: MOV_M $b, implicit $h, implicit $l
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: MOV_M $c, implicit $h, implicit $l
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: MOV_M $d, implicit $h, implicit $l
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: MOV_M $e, implicit $h, implicit $l
     ; CHECK-NEXT: RET implicit $sp, implicit-def $sp
     $iax = ADD_32 $iax, $ibx, implicit-def $sreg, implicit-def $a, implicit-def $hl
     RET implicit $sp, implicit-def $sp
@@ -105,51 +91,51 @@ body:             |
     ; CHECK-NEXT: $hl = LXI 0
     ; CHECK-NEXT: DAD $sp, implicit-def $sreg, implicit-def $h, implicit-def $l, implicit $h, implicit $l
     ; CHECK-NEXT: $a = MOV_FROM_M implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $hl = INX $hl
     ; CHECK-NEXT: SUB_M implicit-def $sreg, implicit-def $a, implicit $h, implicit $l, implicit $a
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
+    ; CHECK-NEXT: $hl = DCX $hl
+    ; CHECK-NEXT: $hl = DCX $hl
+    ; CHECK-NEXT: $hl = DCX $hl
+    ; CHECK-NEXT: $hl = DCX $hl
     ; CHECK-NEXT: MOV_M $a, implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $hl = INX $hl
     ; CHECK-NEXT: $a = MOV_FROM_M implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $hl = INX $hl
     ; CHECK-NEXT: SBB_M implicit-def $sreg, implicit-def $a, implicit $h, implicit $l, implicit $a, implicit $sreg
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
+    ; CHECK-NEXT: $hl = DCX $hl
+    ; CHECK-NEXT: $hl = DCX $hl
+    ; CHECK-NEXT: $hl = DCX $hl
+    ; CHECK-NEXT: $hl = DCX $hl
     ; CHECK-NEXT: MOV_M $a, implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $hl = INX $hl
     ; CHECK-NEXT: $a = MOV_FROM_M implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $hl = INX $hl
     ; CHECK-NEXT: SBB_M implicit-def $sreg, implicit-def $a, implicit $h, implicit $l, implicit $a, implicit $sreg
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
+    ; CHECK-NEXT: $hl = DCX $hl
+    ; CHECK-NEXT: $hl = DCX $hl
+    ; CHECK-NEXT: $hl = DCX $hl
+    ; CHECK-NEXT: $hl = DCX $hl
     ; CHECK-NEXT: MOV_M $a, implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $hl = INX $hl
     ; CHECK-NEXT: $a = MOV_FROM_M implicit $h, implicit $l
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
-    ; CHECK-NEXT: $hl = INX
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $hl = INX $hl
+    ; CHECK-NEXT: $hl = INX $hl
     ; CHECK-NEXT: SBB_M implicit-def $sreg, implicit-def $a, implicit $h, implicit $l, implicit $a, implicit $sreg
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
-    ; CHECK-NEXT: $hl = DCX
+    ; CHECK-NEXT: $hl = DCX $hl
+    ; CHECK-NEXT: $hl = DCX $hl
+    ; CHECK-NEXT: $hl = DCX $hl
+    ; CHECK-NEXT: $hl = DCX $hl
     ; CHECK-NEXT: MOV_M $a, implicit $h, implicit $l
     ; CHECK-NEXT: RET implicit $sp, implicit-def $sp
     $iax = SUB_32 $iax, $ibx, implicit-def $sreg, implicit-def $a, implicit-def $hl

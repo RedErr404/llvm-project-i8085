@@ -1600,9 +1600,79 @@ template <> bool I8085ExpandPseudo32::expand<I8085::ADD_32>(Block &MBB, BlockIt 
   MachineInstr &MI = *MBBI;
 
   unsigned destReg = MI.getOperand(0).getReg();
+  unsigned operandOne = MI.getOperand(1).getReg();
   unsigned operandTwo = MI.getOperand(2).getReg();
 
-  int baseOne = (destReg == I8085::IBX) ? 4 : 0;
+  // Batched path (the hand-written-runtime technique): keep the accumulator
+  // (op1) in B/C/D/E across the whole add and read op2 from memory one byte at
+  // a time -- one memory access per byte instead of the three (load dest, add,
+  // store dest) plus the DCX*4/INX*4 walk between the two scratch operands that
+  // the byte-in-memory form below pays.  This mirrors binOperation() but chains
+  // carry: byte 0 is ADD, bytes 1-3 are ADC.  INX (emitScratchAdvance) and MOV
+  // preserve the carry flag, so advancing to the next op2 byte is safe; the DAD
+  // inside emitScratchAddr clobbers carry but only runs before byte 0's ADD.
+  // Requires dest==op1 (the tied constraint) and B/C/D/E dead afterwards.
+  auto AfterMI = std::next(MBBI);
+  bool CanBatch = (destReg == operandOne);
+  if (CanBatch) {
+    for (MCRegister Reg : {I8085::B, I8085::C, I8085::D, I8085::E}) {
+      if (MBB.computeRegisterLiveness(TRI, Reg, AfterMI, 20) !=
+          MachineBasicBlock::LQR_Dead) {
+        CanBatch = false;
+        break;
+      }
+    }
+  }
+
+  if (CanBatch) {
+    // Phase 1: load op1 into B, C, D, E (B = byte 0 = LSB).  Skipped when a
+    // previous pseudo forwarded op1 into B/C/D/E.
+    auto FwdIt = BCDEForwarded.find(&MI);
+    bool Forwarded = (FwdIt != BCDEForwarded.end() && FwdIt->second == operandOne);
+    if (Forwarded)
+      BCDEForwarded.erase(FwdIt);
+    if (!Forwarded) {
+      emitScratchAddr(MBB, MBBI, operandOne, 0);
+      buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::B, RegState::Define);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::C, RegState::Define);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::D, RegState::Define);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::E, RegState::Define);
+    }
+
+    // Phase 2: add op2 into B/C/D/E with a carry chain (ADD then ADC*3).
+    static const unsigned Regs[4] = {I8085::B, I8085::C, I8085::D, I8085::E};
+    emitScratchAddr(MBB, MBBI, operandTwo, 0);
+    for (int i = 0; i < 4; ++i) {
+      buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::A, RegState::Define).addReg(Regs[i]);
+      buildMI(MBB, MBBI, i == 0 ? I8085::ADD_M : I8085::ADC_M);
+      buildMI(MBB, MBBI, I8085::MOV).addReg(Regs[i], RegState::Define).addReg(I8085::A);
+      if (i != 3)
+        emitScratchAdvance(MBB, MBBI, 1);
+    }
+
+    // Phase 3: store B/C/D/E back to dest, unless it can be forwarded onward.
+    if (!tryForwardBCDE(MBB, MBBI, destReg)) {
+      emitScratchAddr(MBB, MBBI, destReg, 0);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::B);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::C);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::D);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::E);
+    }
+
+    MI.eraseFromParent();
+    return true;
+  }
+
+  // Fallback: byte-in-memory carry-safe form.  Each byte loads dest[i] into A,
+  // walks to op2[i] (INX/DCX preserve carry), ADCs, walks back and stores.
+  unsigned fbDest = MI.getOperand(0).getReg();
+  int baseOne = (fbDest == I8085::IBX) ? 4 : 0;
   int baseTwo = (operandTwo == I8085::IBX) ? 4 : 0;
   int delta = baseTwo - baseOne;
   int deltaSteps = (delta < 0) ? -delta : delta;
@@ -1614,7 +1684,7 @@ template <> bool I8085ExpandPseudo32::expand<I8085::ADD_32>(Block &MBB, BlockIt 
       buildMI(MBB, MBBI, Opc).addReg(I8085::HL, RegState::Define).addReg(I8085::HL);
   };
 
-  emitScratchAddr(MBB, MBBI, destReg, 0);
+  emitScratchAddr(MBB, MBBI, fbDest, 0);
   for (int i = 0; i < 4; ++i) {
       buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::A, RegState::Define);
       if (delta != 0)
