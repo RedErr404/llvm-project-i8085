@@ -511,9 +511,13 @@ bool I8085ExpandPseudo32::tryForwardBCDE(Block &MBB, BlockIt MBBI,
   MachineInstr *NextPseudo = &*NextIt;
   unsigned NextOpc = NextPseudo->getOpcode();
 
-  // Only allow binOperation consumers.
+  // Only allow consumers whose batched expansion loads op1 from B/C/D/E in
+  // Phase 1 and can therefore skip it: the bitwise binOperation ops and ADD_32
+  // (which now shares that register-accumulator shape).  ADD reads op2 from
+  // memory and only starts its carry chain at byte 0's ADD, so a forwarded op1
+  // needs no special carry handling.
   if (NextOpc != I8085::XOR_32 && NextOpc != I8085::OR_32 &&
-      NextOpc != I8085::AND_32)
+      NextOpc != I8085::AND_32 && NextOpc != I8085::ADD_32)
     return false;
 
   // Check the consumer reads from the forwarded register.
