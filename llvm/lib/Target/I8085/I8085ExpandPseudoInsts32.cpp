@@ -2461,11 +2461,42 @@ bool I8085ExpandPseudo32::expandMI(Block &MBB, BlockIt MBBI) {
         break;
       }
     if (!DefinesSREG) {
-      LivePhysRegs LiveRegs(*TRI);
-      LiveRegs.addLiveOuts(MBB);
-      for (auto I = MBB.rbegin(), E = MBBI.getReverse(); I != E; ++I)
-        LiveRegs.stepBackward(*I);
-      NeedPSWSave = LiveRegs.contains(I8085::SREG);
+      // SREG is live across this pseudo iff a following instruction reads it
+      // before any instruction redefines it.  Scan forward to the first SREG
+      // event -- normally one or two instructions (the consuming branch, or an
+      // ALU op that overwrites the flags), so this stays O(1) per pseudo rather
+      // than the O(block) backward walk it replaced (which was quadratic over a
+      // block full of GR32 pseudos and made compile time blow up).  A short cap
+      // keeps it linear even in the pathological long-run case: if unresolved,
+      // fall back to a single live-out query and, failing that, save
+      // conservatively (a needless PUSH/POP PSW is only a size cost).
+      const unsigned Cap = 64;
+      unsigned Steps = 0;
+      bool Resolved = false;
+      for (auto I = std::next(MBBI); I != MBB.end(); ++I) {
+        if (I->readsRegister(I8085::SREG, TRI)) {
+          NeedPSWSave = true;
+          Resolved = true;
+          break;
+        }
+        if (I->modifiesRegister(I8085::SREG, TRI)) {
+          NeedPSWSave = false;
+          Resolved = true;
+          break;
+        }
+        if (++Steps >= Cap) {
+          NeedPSWSave = true; // undecided within the cap: be conservative
+          Resolved = true;
+          break;
+        }
+      }
+      if (!Resolved) {
+        // Ran off the block end with no local SREG read or def: SREG is live
+        // across this pseudo iff it is live-out of the block.
+        LivePhysRegs LiveRegs(*TRI);
+        LiveRegs.addLiveOuts(MBB);
+        NeedPSWSave = LiveRegs.contains(I8085::SREG);
+      }
     }
   }
 
