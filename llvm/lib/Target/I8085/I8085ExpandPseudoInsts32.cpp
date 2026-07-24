@@ -94,6 +94,11 @@ private:
   void emitBatchedOperandAddr(Block &MBB, BlockIt MBBI, MachineInstr *MI,
                               const DenseMap<MachineInstr *, int64_t> &Fold,
                               unsigned Reg);
+  // Emit `Count` register-resident 1-bit shifts of the value held in B/C/D/E
+  // (B=byte0 LSB .. E=byte3 MSB).  Left = logical shift left (ADD/ADC A, LSB
+  // first, 0 into bit0); otherwise logical shift right (RAR, MSB first, 0 into
+  // bit31).  No mask needed -- ADD A / a cleared-carry RAR fill the vacated bit.
+  void emitRegShiftBCDE(Block &MBB, BlockIt MBBI, unsigned Count, bool Left);
 
   void preScanKnownZeroBytes(Block &MBB);
   bool expandMBB(Block &MBB);
@@ -921,12 +926,83 @@ template <> bool I8085ExpandPseudo32::expand<I8085::ANDI_32>(Block &MBB, BlockIt
   return binOperationWithImmediateOperand(I8085::ANI,MBB,MBBI);
 }
 
+void I8085ExpandPseudo32::emitRegShiftBCDE(Block &MBB, BlockIt MBBI,
+                                           unsigned Count, bool Left) {
+  static const unsigned R[4] = {I8085::B, I8085::C, I8085::D, I8085::E};
+  for (unsigned n = 0; n < Count; ++n) {
+    if (Left) {
+      // LSB (B) first: ADD A doubles it (bit0=0, CY=bit7); ADC A chains up.
+      for (int i = 0; i < 4; ++i) {
+        buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::A, RegState::Define).addReg(R[i]);
+        buildMI(MBB, MBBI, i == 0 ? I8085::ADD : I8085::ADC).addReg(I8085::A);
+        buildMI(MBB, MBBI, I8085::MOV).addReg(R[i], RegState::Define).addReg(I8085::A);
+      }
+    } else {
+      // MSB (E) first: clear CY, RAR (bit7=0); RAR chains the carry down.
+      for (int i = 3; i >= 0; --i) {
+        buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::A, RegState::Define).addReg(R[i]);
+        if (i == 3)
+          buildMI(MBB, MBBI, I8085::ORA).addReg(I8085::A); // clear carry
+        buildMI(MBB, MBBI, I8085::RAR);
+        buildMI(MBB, MBBI, I8085::MOV).addReg(R[i], RegState::Define).addReg(I8085::A);
+      }
+    }
+  }
+}
 
 template <> bool I8085ExpandPseudo32::expand<I8085::RR_32>(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
 
   unsigned destReg = MI.getOperand(0).getReg();
   unsigned srcReg = MI.getOperand(1).getReg();
+
+  // Register-resident fusion: a run of consecutive in-place RR_32 is a
+  // multi-bit right shift; do it in B/C/D/E (load once, shift, store once).
+  if (destReg == srcReg) {
+    BlockIt RunEnd = std::next(MBBI);
+    unsigned Count = 1;
+    while (RunEnd != MBB.end() && RunEnd->getOpcode() == I8085::RR_32 &&
+           RunEnd->getOperand(0).getReg() == destReg &&
+           RunEnd->getOperand(1).getReg() == destReg) {
+      ++Count;
+      ++RunEnd;
+    }
+    bool BCDEDead = true;
+    for (MCRegister R : {I8085::B, I8085::C, I8085::D, I8085::E}) {
+      if (MBB.computeRegisterLiveness(TRI, R, RunEnd, 20) !=
+          MachineBasicBlock::LQR_Dead) {
+        BCDEDead = false;
+        break;
+      }
+    }
+    if (Count >= 2 && BCDEDead) {
+      emitScratchAddr(MBB, MBBI, destReg, 0);
+      buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::B, RegState::Define);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::C, RegState::Define);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::D, RegState::Define);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::E, RegState::Define);
+      emitRegShiftBCDE(MBB, MBBI, Count, /*Left=*/false);
+      emitScratchAddr(MBB, MBBI, destReg, 0);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::B);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::C);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::D);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::E);
+      for (BlockIt It = std::next(MBBI); It != RunEnd;) {
+        BlockIt Next = std::next(It);
+        It->eraseFromParent();
+        It = Next;
+      }
+      MI.eraseFromParent();
+      return true;
+    }
+  }
+
   if (destReg != srcReg) {
     for (int i = 0; i < 4; ++i) {
       emitScratchLoad(MBB, MBBI, srcReg, i, I8085::A);
@@ -1244,6 +1320,54 @@ template <> bool I8085ExpandPseudo32::expand<I8085::RL_32>(Block &MBB, BlockIt M
 
   unsigned destReg = MI.getOperand(0).getReg();
   unsigned srcReg = MI.getOperand(1).getReg();
+
+  // Register-resident fusion: a run of consecutive in-place RL_32 is a
+  // multi-bit left shift; do it in B/C/D/E (load once, shift, store once).
+  if (destReg == srcReg) {
+    BlockIt RunEnd = std::next(MBBI);
+    unsigned Count = 1;
+    while (RunEnd != MBB.end() && RunEnd->getOpcode() == I8085::RL_32 &&
+           RunEnd->getOperand(0).getReg() == destReg &&
+           RunEnd->getOperand(1).getReg() == destReg) {
+      ++Count;
+      ++RunEnd;
+    }
+    bool BCDEDead = true;
+    for (MCRegister R : {I8085::B, I8085::C, I8085::D, I8085::E}) {
+      if (MBB.computeRegisterLiveness(TRI, R, RunEnd, 20) !=
+          MachineBasicBlock::LQR_Dead) {
+        BCDEDead = false;
+        break;
+      }
+    }
+    if (Count >= 2 && BCDEDead) {
+      emitScratchAddr(MBB, MBBI, destReg, 0);
+      buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::B, RegState::Define);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::C, RegState::Define);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::D, RegState::Define);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::E, RegState::Define);
+      emitRegShiftBCDE(MBB, MBBI, Count, /*Left=*/true);
+      emitScratchAddr(MBB, MBBI, destReg, 0);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::B);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::C);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::D);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::E);
+      for (BlockIt It = std::next(MBBI); It != RunEnd;) {
+        BlockIt Next = std::next(It);
+        It->eraseFromParent();
+        It = Next;
+      }
+      MI.eraseFromParent();
+      return true;
+    }
+  }
+
   if (destReg != srcReg) {
     for (int i = 0; i < 4; ++i) {
       emitScratchLoad(MBB, MBBI, srcReg, i, I8085::A);

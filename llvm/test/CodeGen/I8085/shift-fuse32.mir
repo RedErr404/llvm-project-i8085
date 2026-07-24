@@ -1,0 +1,66 @@
+# RUN: llc -run-pass=i8085-expand-pseudo32 %s -o - | FileCheck %s
+
+# A run of >=2 consecutive in-place single-bit GR32 shifts (RL_32 for left,
+# RR_32 for right) is fused into one register-resident multi-bit shift: load
+# the value into B/C/D/E once, shift Count bits in registers (ADD/ADC A for
+# left, a cleared-carry RAR chain for right -- no per-bit mask), store once.
+# This replaces the per-bit load/memory-shift/store/mask each pseudo does
+# alone.  Fires only when B/C/D/E are dead afterwards.  A SINGLE shift keeps
+# the memory form (the register load+store would not be amortized).
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @rl_fuse2() { ret void }
+  define void @rr_fuse2() { ret void }
+  define void @rl_single() { ret void }
+...
+---
+# two left shifts -> register form: load BCDE, ADD/ADC A x2, store; no RAL/mask.
+name:            rl_fuse2
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $iax
+    ; CHECK-LABEL: name: rl_fuse2
+    ; CHECK: $b = MOV_FROM_M
+    ; CHECK: ADD $a
+    ; CHECK: ADC $a
+    ; CHECK: MOV_M $b
+    ; CHECK-NOT: RAL
+    ; CHECK-NOT: ANI 254
+    $iax = RL_32 $iax, implicit-def $sreg, implicit-def $a, implicit-def $hl, implicit $a
+    $iax = RL_32 $iax, implicit-def $sreg, implicit-def $a, implicit-def $hl, implicit $a
+    RET implicit $sp, implicit-def $sp
+...
+---
+# two right shifts -> register form: RAR chain with a cleared-carry ORA A per
+# iteration; no ANI 127 mask.
+name:            rr_fuse2
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $iax
+    ; CHECK-LABEL: name: rr_fuse2
+    ; CHECK: $b = MOV_FROM_M
+    ; CHECK: ORA $a
+    ; CHECK: RAR
+    ; CHECK: MOV_M $b
+    ; CHECK-NOT: ANI 127
+    $iax = RR_32 $iax, implicit-def $sreg, implicit-def $a, implicit-def $hl, implicit $a
+    $iax = RR_32 $iax, implicit-def $sreg, implicit-def $a, implicit-def $hl, implicit $a
+    RET implicit $sp, implicit-def $sp
+...
+---
+# a single left shift stays in the memory form (Count < 2): RAL + ANI 254 mask.
+name:            rl_single
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $iax
+    ; CHECK-LABEL: name: rl_single
+    ; CHECK: RAL
+    ; CHECK: ANI 254
+    ; CHECK-NOT: ADD $a
+    $iax = RL_32 $iax, implicit-def $sreg, implicit-def $a, implicit-def $hl, implicit $a
+    RET implicit $sp, implicit-def $sp
+...
