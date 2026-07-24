@@ -113,7 +113,20 @@ private:
   /// Check whether the next GR32 pseudo after MBBI can consume forwarded
   /// B/C/D/E holding destReg's value, and if so, register it in
   /// BCDEForwarded and return true (meaning Phase 3 store should be skipped).
-  bool tryForwardBCDE(Block &MBB, BlockIt MBBI, unsigned destReg);
+  /// With DryRun set, run every check but record nothing -- used to decide
+  /// whether the cheaper forwarding path applies before choosing an
+  /// alternative expansion.
+  bool tryForwardBCDE(Block &MBB, BlockIt MBBI, unsigned destReg,
+                      bool DryRun = false);
+
+  /// Undocumented fast path for an SP-relative 32-bit slot-to-slot copy:
+  /// copy 4 bytes from [SP+SrcOff] to [SP+DstOff] as two 16-bit LDSI/LHLX/SHLX
+  /// moves (8 instrs, 12 bytes, clobbers only DE+HL, never A or BC).  Emits the
+  /// sequence and returns true on success; returns false (caller keeps its
+  /// portable path) when undoc is off, D or E is live afterwards (LDSI destroys
+  /// DE), or an offset or its +2 high half does not fit LDSI's imm8.
+  bool tryUndocSpCopy32(Block &MBB, BlockIt MBBI, int64_t SrcOff,
+                        int64_t DstOff);
 
   MachineInstrBuilder buildMI(Block &MBB, BlockIt MBBI, unsigned Opcode) {
     return BuildMI(MBB, MBBI, MBBI->getDebugLoc(), TII->get(Opcode));
@@ -494,7 +507,7 @@ bool I8085ExpandPseudo32::runOnMachineFunction(MachineFunction &MF) {
 }
 
 bool I8085ExpandPseudo32::tryForwardBCDE(Block &MBB, BlockIt MBBI,
-                                          unsigned destReg) {
+                                          unsigned destReg, bool DryRun) {
   // Find the next GR32 pseudo immediately after MBBI in the MBB.
   // Only forward to binOperation consumers (XOR_32/OR_32/AND_32) because
   // they always write back to the same scratch slot (destReg == operandOne
@@ -547,11 +560,46 @@ bool I8085ExpandPseudo32::tryForwardBCDE(Block &MBB, BlockIt MBBI,
       return false;
   }
 
-  // All checks passed. Register the consumer for forwarding.
+  // All checks passed.  In dry-run mode report eligibility without committing.
+  if (DryRun)
+    return true;
+
+  // Register the consumer for forwarding.
   LLVM_DEBUG(dbgs() << "BCDE forwarding: skip Phase 3 store of "
                     << (destReg == I8085::IAX ? "IAX" : "IBX")
                     << ", consumer will use B/C/D/E directly\n");
   BCDEForwarded[NextPseudo] = destReg;
+  return true;
+}
+
+bool I8085ExpandPseudo32::tryUndocSpCopy32(Block &MBB, BlockIt MBBI,
+                                           int64_t SrcOff, int64_t DstOff) {
+  if (!HasUndoc)
+    return false;
+
+  // LDSI takes an unsigned imm8 and we address both the byte and its +2 high
+  // half, so every offset used must satisfy 0 <= off && off+2 <= 255.
+  auto Fits = [](int64_t O) { return O >= 0 && O + 2 <= 255; };
+  if (!Fits(SrcOff) || !Fits(DstOff))
+    return false;
+
+  // LDSI clobbers all of DE; only safe when D and E are dead afterwards.
+  // (HL is clobbered too, but every portable path here already clobbers HL.)
+  auto AfterMI = std::next(MBBI);
+  for (MCRegister Reg : {I8085::D, I8085::E}) {
+    if (MBB.computeRegisterLiveness(TRI, Reg, AfterMI, 20) !=
+        MachineBasicBlock::LQR_Dead)
+      return false;
+  }
+
+  // Two 16-bit copies: low half (bytes 0,1) then high half (bytes 2,3).
+  for (int Half = 0; Half < 2; ++Half) {
+    int Delta = Half * 2;
+    buildMI(MBB, MBBI, I8085::LDSI).addImm(SrcOff + Delta);
+    buildMI(MBB, MBBI, I8085::LHLX);
+    buildMI(MBB, MBBI, I8085::LDSI).addImm(DstOff + Delta);
+    buildMI(MBB, MBBI, I8085::SHLX);
+  }
   return true;
 }
 
@@ -1344,6 +1392,16 @@ template <> bool I8085ExpandPseudo32::expand<I8085::MOV_32>(Block &MBB, BlockIt 
   unsigned destReg = MI.getOperand(0).getReg();
   unsigned srcReg = MI.getOperand(1).getReg();
 
+  // Undoc SP-to-SP fast path.  Skip it when forwarding B/C/D/E to an
+  // immediately-following consumer would be cheaper (a forwarded accumulator
+  // beats a full copy plus the consumer's reload).
+  if (!tryForwardBCDE(MBB, MBBI, destReg, /*DryRun=*/true) &&
+      tryUndocSpCopy32(MBB, MBBI, getScratchOffset(srcReg, 0),
+                       getScratchOffset(destReg, 0))) {
+    MI.eraseFromParent();
+    return true;
+  }
+
   // Check if B, C, D, E are all dead after this instruction.
   // If so, batch-load all 4 bytes into registers, then batch-store,
   // using INX H between sequential accesses (saves 6 LXI+DAD pairs).
@@ -1815,6 +1873,16 @@ template <> bool I8085ExpandPseudo32::expand<I8085::LOAD_32_WITH_ADDR>(Block &MB
   if (HLSaveBias > 0 && baseReg == I8085::SP)
     offsetToLoad += HLSaveBias;
 
+  // Undoc SP-to-SP fast path (frame slot -> scratch): only when the base is SP,
+  // and not when forwarding B/C/D/E to an immediate consumer is cheaper.  This
+  // is the common argument/spill reload.
+  if (baseReg == I8085::SP &&
+      !tryForwardBCDE(MBB, MBBI, destReg, /*DryRun=*/true) &&
+      tryUndocSpCopy32(MBB, MBBI, offsetToLoad, getScratchOffset(destReg, 0))) {
+    MI.eraseFromParent();
+    return true;
+  }
+
   // Check if B, C, D, E are all dead after this instruction.
   // If so, batch-load all 4 bytes into registers via one LXI+DAD + INX chain,
   // then batch-store to scratch via one LXI+DAD + INX chain.
@@ -2189,6 +2257,12 @@ template <> bool I8085ExpandPseudo32::expand<I8085::STORE_32_AT_OFFSET_WITH_SP>(
   // Always SP-relative: adjust for HL preservation.
   offsetToStore += HLSaveBias;
 
+  // Undoc SP-to-SP fast path (scratch slot -> frame slot).  No forwarding here.
+  if (tryUndocSpCopy32(MBB, MBBI, getScratchOffset(srcReg, 0), offsetToStore)) {
+    MI.eraseFromParent();
+    return true;
+  }
+
   // Check if B, C, D, E are all dead after this instruction.
   // If so, batch-load from scratch into B/C/D/E, then batch-store to dest.
   auto AfterMI = std::next(MBBI);
@@ -2251,6 +2325,14 @@ template <> bool I8085ExpandPseudo32::expand<I8085::LOAD_32_OFFSET_WITH_SP>(Bloc
 
   // Always SP-relative: adjust for HL preservation.
   offsetToLoad += HLSaveBias;
+
+  // Undoc SP-to-SP fast path (frame slot -> scratch slot).  Skip it when
+  // forwarding B/C/D/E to an immediately-following consumer would be cheaper.
+  if (!tryForwardBCDE(MBB, MBBI, destReg, /*DryRun=*/true) &&
+      tryUndocSpCopy32(MBB, MBBI, offsetToLoad, getScratchOffset(destReg, 0))) {
+    MI.eraseFromParent();
+    return true;
+  }
 
   // Check if B, C, D, E are all dead after this instruction.
   // If so, batch-load all 4 bytes into registers via one LXI+DAD + INX chain,

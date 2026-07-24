@@ -1,0 +1,124 @@
+# RUN: llc -run-pass=i8085-expand-pseudo32 -mattr=+undoc %s -o - | FileCheck %s
+# RUN: llc -run-pass=i8085-expand-pseudo32 %s -o - | FileCheck %s --check-prefix=PLAIN
+
+# The three SP-relative 32-bit copy pseudos (MOV_32 between two scratch slots,
+# LOAD_32_OFFSET_WITH_SP frame->scratch, STORE_32_AT_OFFSET_WITH_SP scratch->
+# frame) all reduce to "copy 32 bits from SP+A to SP+B".  Today that is a
+# ~20-instruction round trip through B/C/D/E.  With +undoc it becomes
+# LDSI/LHLX/SHLX x2 (8 instrs, 12 bytes), touching only DE and HL -- never A
+# or BC.  LDSI clobbers DE, so the fast path only fires when D and E are dead
+# afterwards and every offset (and its +2 high half) fits LDSI's imm8.
+# In -run-pass tests ScratchBaseOffset is 0, so IAX byte0 is SP+0 and IBX
+# byte0 is SP+4.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @mov32_undoc() { ret void }
+  define void @mov32_de_live() { ret void }
+  define void @mov32_forward_to_add() { ret void }
+  define void @store32off_undoc() { ret void }
+  define void @load32off_undoc() { ret void }
+...
+
+---
+name:            mov32_undoc
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $iax, $sp
+    ; IAX(src)=SP+0, IBX(dst)=SP+4.  Low half then high half.
+    ; CHECK-LABEL: name: mov32_undoc
+    ; CHECK: LDSI 0
+    ; CHECK-NEXT: LHLX
+    ; CHECK-NEXT: LDSI 4
+    ; CHECK-NEXT: SHLX
+    ; CHECK-NEXT: LDSI 2
+    ; CHECK-NEXT: LHLX
+    ; CHECK-NEXT: LDSI 6
+    ; CHECK-NEXT: SHLX
+    ; CHECK-NOT: DAD $sp
+    ; PLAIN-LABEL: name: mov32_undoc
+    ; PLAIN-NOT: LDSI
+    ; PLAIN: DAD $sp
+    $ibx = MOV_32 $iax, implicit-def $a, implicit-def $hl
+    RET implicit $sp, implicit-def $sp
+...
+
+---
+name:            mov32_de_live
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $iax, $sp, $e
+    ; E is used afterwards; LDSI would destroy DE -> portable path only.
+    ; CHECK-LABEL: name: mov32_de_live
+    ; CHECK-NOT: LDSI
+    ; CHECK: DAD $sp
+    $ibx = MOV_32 $iax, implicit-def $a, implicit-def $hl
+    $a = MOV $e
+    RET implicit $sp, implicit-def $sp, implicit $a
+...
+
+---
+name:            mov32_forward_to_add
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $ibx, $sp
+    ; The MOV_32 result (IAX) is immediately consumed by an ADD_32 that can take
+    ; the value forwarded in B/C/D/E; keep the forwarding path (cheaper than a
+    ; copy + reload), so no LDSI copy is emitted.
+    ; CHECK-LABEL: name: mov32_forward_to_add
+    ; CHECK-NOT: LDSI
+    $iax = MOV_32 $ibx, implicit-def $a, implicit-def $hl
+    $iax = ADD_32 $iax, $ibx, implicit-def $sreg, implicit-def $a, implicit-def $hl
+    RET implicit $sp, implicit-def $sp
+...
+
+---
+name:            store32off_undoc
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $iax, $sp
+    ; scratch IAX(SP+0) -> frame slot SP+10.
+    ; CHECK-LABEL: name: store32off_undoc
+    ; CHECK: LDSI 0
+    ; CHECK-NEXT: LHLX
+    ; CHECK-NEXT: LDSI 10
+    ; CHECK-NEXT: SHLX
+    ; CHECK-NEXT: LDSI 2
+    ; CHECK-NEXT: LHLX
+    ; CHECK-NEXT: LDSI 12
+    ; CHECK-NEXT: SHLX
+    ; CHECK-NOT: DAD $sp
+    ; PLAIN-LABEL: name: store32off_undoc
+    ; PLAIN-NOT: LDSI
+    ; PLAIN: DAD $sp
+    STORE_32_AT_OFFSET_WITH_SP $iax, 10, implicit $sp, implicit-def $a, implicit-def $hl
+    RET implicit $sp, implicit-def $sp
+...
+
+---
+name:            load32off_undoc
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $sp
+    ; frame slot SP+10 -> scratch IAX(SP+0).
+    ; CHECK-LABEL: name: load32off_undoc
+    ; CHECK: LDSI 10
+    ; CHECK-NEXT: LHLX
+    ; CHECK-NEXT: LDSI 0
+    ; CHECK-NEXT: SHLX
+    ; CHECK-NEXT: LDSI 12
+    ; CHECK-NEXT: LHLX
+    ; CHECK-NEXT: LDSI 2
+    ; CHECK-NEXT: SHLX
+    ; CHECK-NOT: DAD $sp
+    ; PLAIN-LABEL: name: load32off_undoc
+    ; PLAIN-NOT: LDSI
+    ; PLAIN: DAD $sp
+    $iax = LOAD_32_OFFSET_WITH_SP 10, implicit $sp, implicit-def $a, implicit-def $hl
+    RET implicit $sp, implicit-def $sp
+...
