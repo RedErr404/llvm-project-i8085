@@ -1,0 +1,97 @@
+# RUN: llc -run-pass=i8085-expand-pseudo32 -mattr=+undoc %s -o - | FileCheck %s --check-prefix=UNDOC
+# RUN: llc -run-pass=i8085-expand-pseudo32 %s -o - | FileCheck %s --check-prefix=PLAIN
+
+# A batched GR32 ALU op (ADD_32 / bitwise, dst==op1, B/C/D/E dead after) reads
+# its operands from memory one byte at a time, so an operand defined by an
+# immediately-preceding LOAD_32_WITH_ADDR $sp,K (an argument/spill reload) need
+# not be staged into its own scratch slot -- the ALU reads it straight from
+# SP+K and the load is deleted (foldStagedLoads).  Independent of +undoc.
+#
+# A fold is recorded only when B/C/D/E are PROVEN dead afterwards, so the ALU
+# expansion forces the batched path for a folded op (the fallback delta-walk
+# would read the operand from its now-unwritten slot).
+#
+# In -run-pass tests ScratchBaseOffset is 0: IAX byte0 = SP+0, IBX byte0 = SP+4.
+# A folded operand is read at SP+K; a *staged* one copies to the IBX slot
+# (SP+4) -- with +undoc that copy is LDSI/LHLX/SHLX, in plain LXI 4;DAD;MOV M.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @add32_fold_op2() { ret void }
+  define void @add32_fold_both() { ret void }
+  define void @add32_no_fold_op2_live() { ret void }
+  define void @sub32_no_fold() { ret void }
+...
+
+---
+name:            add32_fold_op2
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $iax, $sp
+    ; UNDOC-LABEL: name: add32_fold_op2
+    ; UNDOC-NOT: LHLX
+    ; UNDOC: LXI 20
+    ; UNDOC: ADD_M
+    ; PLAIN-LABEL: name: add32_fold_op2
+    ; PLAIN: LXI 20
+    ; PLAIN: ADD_M
+    ; PLAIN-NOT: LXI 4
+    $ibx = LOAD_32_WITH_ADDR $sp, 20, implicit-def $a, implicit-def $hl
+    $iax = ADD_32 $iax, $ibx, implicit-def $sreg, implicit-def $a, implicit-def $hl
+    RET implicit $sp, implicit-def $sp
+...
+
+---
+name:            add32_fold_both
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $sp
+    ; UNDOC-LABEL: name: add32_fold_both
+    ; UNDOC-NOT: LHLX
+    ; UNDOC: LXI 8
+    ; UNDOC: LXI 20
+    ; PLAIN-LABEL: name: add32_fold_both
+    ; PLAIN: LXI 8
+    ; PLAIN: LXI 20
+    ; PLAIN-NOT: LXI 4
+    $iax = LOAD_32_WITH_ADDR $sp, 8, implicit-def $a, implicit-def $hl
+    $ibx = LOAD_32_WITH_ADDR $sp, 20, implicit-def $a, implicit-def $hl
+    $iax = ADD_32 $iax, $ibx, implicit-def $sreg, implicit-def $a, implicit-def $hl
+    RET implicit $sp, implicit-def $sp
+...
+
+---
+# op2 (IBX) is read again after the ADD, so its slot must be written: no fold.
+name:            add32_no_fold_op2_live
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $iax, $sp
+    ; UNDOC-LABEL: name: add32_no_fold_op2_live
+    ; UNDOC: LHLX
+    ; PLAIN-LABEL: name: add32_no_fold_op2_live
+    ; PLAIN: LXI 4
+    $ibx = LOAD_32_WITH_ADDR $sp, 20, implicit-def $a, implicit-def $hl
+    $iax = ADD_32 $iax, $ibx, implicit-def $sreg, implicit-def $a, implicit-def $hl
+    $ibx = ADD_32 $ibx, $iax, implicit-def $sreg, implicit-def $a, implicit-def $hl
+    RET implicit $sp, implicit-def $sp
+...
+
+---
+# SUB_32 uses the delta-walk (op2 at a fixed slot delta), not a batched path:
+# never fold (excluded) -- the staging load stays.
+name:            sub32_no_fold
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $iax, $sp
+    ; UNDOC-LABEL: name: sub32_no_fold
+    ; UNDOC: LHLX
+    ; PLAIN-LABEL: name: sub32_no_fold
+    ; PLAIN: LXI 4
+    $ibx = LOAD_32_WITH_ADDR $sp, 20, implicit-def $a, implicit-def $hl
+    $iax = SUB_32 $iax, $ibx, implicit-def $sreg, implicit-def $a, implicit-def $hl
+    RET implicit $sp, implicit-def $sp
+...

@@ -85,6 +85,16 @@ private:
   // The unsigned value is the GR32 register that B/C/D/E hold.
   DenseMap<MachineInstr *, unsigned> BCDEForwarded;
 
+  // Operand-staging fold (experimental, under diagnostics): erase a staging
+  // LOAD_32_WITH_ADDR $sp,K feeding a batched ALU op and redirect the op's
+  // byte-0 read to SP+K.  Maps the ALU MI to the raw frame offset K.
+  DenseMap<MachineInstr *, int64_t> Op1Fold;
+  DenseMap<MachineInstr *, int64_t> Op2Fold;
+  void foldStagedLoads(Block &MBB);
+  void emitBatchedOperandAddr(Block &MBB, BlockIt MBBI, MachineInstr *MI,
+                              const DenseMap<MachineInstr *, int64_t> &Fold,
+                              unsigned Reg);
+
   void preScanKnownZeroBytes(Block &MBB);
   bool expandMBB(Block &MBB);
   int64_t computeSPAdjustment(Block &MBB, BlockIt UpTo);
@@ -470,6 +480,9 @@ bool I8085ExpandPseudo32::runOnMachineFunction(MachineFunction &MF) {
 
     // Clear cross-operation forwarding state for each new MBB.
     BCDEForwarded.clear();
+    Op1Fold.clear();
+    Op2Fold.clear();
+    foldStagedLoads(MBB);
 
     bool ContinueExpanding = true;
     unsigned ExpandCount = 0;
@@ -603,6 +616,97 @@ bool I8085ExpandPseudo32::tryUndocSpCopy32(Block &MBB, BlockIt MBBI,
   return true;
 }
 
+void I8085ExpandPseudo32::emitBatchedOperandAddr(
+    Block &MBB, BlockIt MBBI, MachineInstr *MI,
+    const DenseMap<MachineInstr *, int64_t> &Fold, unsigned Reg) {
+  auto It = Fold.find(MI);
+  if (It == Fold.end()) {
+    emitScratchAddr(MBB, MBBI, Reg, 0);
+    return;
+  }
+  buildMI(MBB, MBBI, I8085::LXI)
+      .addReg(I8085::HL, RegState::Define)
+      .addImm(It->second + HLSaveBias);
+  buildMI(MBB, MBBI, I8085::DAD).addReg(I8085::SP);
+}
+
+void I8085ExpandPseudo32::foldStagedLoads(Block &MBB) {
+  if (!HaveScratch)
+    return;
+
+  auto IsBatchedALU = [](unsigned Opc) {
+    return Opc == I8085::XOR_32 || Opc == I8085::OR_32 ||
+           Opc == I8085::AND_32 || Opc == I8085::ADD_32;
+  };
+
+  auto StagedLoadFor = [&](BlockIt MBBI, unsigned OpReg) -> MachineInstr * {
+    if (MBBI == MBB.begin())
+      return nullptr;
+    MachineInstr *P = &*std::prev(MBBI);
+    if (P->getOpcode() != I8085::LOAD_32_WITH_ADDR)
+      return nullptr;
+    if (P->getOperand(0).isDead() || P->getOperand(0).getReg() != OpReg)
+      return nullptr;
+    if (P->getOperand(1).getReg() != I8085::SP)
+      return nullptr;
+    return P;
+  };
+
+  auto DeadAfter = [&](BlockIt MBBI, unsigned OpReg) {
+    for (auto I = std::next(MBBI); I != MBB.end(); ++I) {
+      if (I->readsRegister(OpReg, TRI))
+        return false;
+      if (I->modifiesRegister(OpReg, TRI))
+        return true;
+    }
+    LivePhysRegs LiveOuts(*TRI);
+    LiveOuts.addLiveOuts(MBB);
+    return !LiveOuts.contains(OpReg);
+  };
+
+  bool Changed = true;
+  while (Changed) {
+    Changed = false;
+    for (auto MBBI = MBB.begin(); MBBI != MBB.end(); ++MBBI) {
+      MachineInstr &MI = *MBBI;
+      if (!IsBatchedALU(MI.getOpcode()))
+        continue;
+      unsigned Dst = MI.getOperand(0).getReg();
+      unsigned Op1 = MI.getOperand(1).getReg();
+      unsigned Op2 = MI.getOperand(2).getReg();
+      if (Dst != Op1)
+        continue;
+      bool BatchOK = true;
+      for (MCRegister R : {I8085::B, I8085::C, I8085::D, I8085::E}) {
+        if (MBB.computeRegisterLiveness(TRI, R, std::next(MBBI), 20) !=
+            MachineBasicBlock::LQR_Dead) {
+          BatchOK = false;
+          break;
+        }
+      }
+      if (!BatchOK)
+        continue;
+
+      if (!Op2Fold.count(&MI) && Op2 != Op1 && DeadAfter(MBBI, Op2)) {
+        if (MachineInstr *L = StagedLoadFor(MBBI, Op2)) {
+          Op2Fold[&MI] = L->getOperand(2).getImm();
+          MI.getOperand(2).setIsUndef();
+          L->eraseFromParent();
+          Changed = true;
+        }
+      }
+      if (!Op1Fold.count(&MI) && Op1 != Op2) {
+        if (MachineInstr *L = StagedLoadFor(MBBI, Op1)) {
+          Op1Fold[&MI] = L->getOperand(2).getImm();
+          MI.getOperand(1).setIsUndef();
+          L->eraseFromParent();
+          Changed = true;
+        }
+      }
+    }
+  }
+}
+
 bool I8085ExpandPseudo32::binOperationWithImmediateOperand(unsigned opCode, Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
 
@@ -686,11 +790,17 @@ bool I8085ExpandPseudo32::binOperation(unsigned opCode, Block &MBB, BlockIt MBBI
       }
     }
   }
+  // See ADD_32: a folded operand must force the batched path (the fallback
+  // reads a scratch slot the erased staging load never wrote).  Safe because
+  // folds are only recorded on proven-dead B/C/D/E.
+  if (Op1Fold.count(&MI) || Op2Fold.count(&MI))
+    CanBatch = true;
 
   if (CanBatch) {
     // Check if B/C/D/E already hold operandOne via forwarding.
     auto FwdIt = BCDEForwarded.find(&MI);
-    bool Forwarded = (FwdIt != BCDEForwarded.end() && FwdIt->second == operandOne);
+    bool Forwarded = (FwdIt != BCDEForwarded.end() &&
+                      FwdIt->second == operandOne && !Op1Fold.count(&MI));
     if (Forwarded) {
       LLVM_DEBUG(dbgs() << "BCDE forwarding: skip Phase 1 load of "
                         << (operandOne == I8085::IAX ? "IAX" : "IBX")
@@ -700,7 +810,7 @@ bool I8085ExpandPseudo32::binOperation(unsigned opCode, Block &MBB, BlockIt MBBI
 
     if (!Forwarded) {
       // Phase 1: Load all 4 bytes of op1 into B, C, D, E
-      emitScratchAddr(MBB, MBBI, operandOne, 0);
+      emitBatchedOperandAddr(MBB, MBBI, &MI, Op1Fold, operandOne);
       buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::B, RegState::Define);
       emitScratchAdvance(MBB, MBBI, 1);
       buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::C, RegState::Define);
@@ -711,7 +821,7 @@ bool I8085ExpandPseudo32::binOperation(unsigned opCode, Block &MBB, BlockIt MBBI
     }
 
     // Phase 2: ALU each byte with op2, results back into B/C/D/E
-    emitScratchAddr(MBB, MBBI, operandTwo, 0);
+    emitBatchedOperandAddr(MBB, MBBI, &MI, Op2Fold, operandTwo);
     // Byte 0: B = B op [HL]
     buildMI(MBB, MBBI, I8085::MOV)
         .addReg(I8085::A, RegState::Define)
@@ -1685,16 +1795,26 @@ template <> bool I8085ExpandPseudo32::expand<I8085::ADD_32>(Block &MBB, BlockIt 
       }
     }
   }
+  // A fold is only ever recorded when foldStagedLoads PROVED B/C/D/E dead
+  // afterwards (computeRegisterLiveness == LQR_Dead, never Unknown); that proof
+  // is about the still-unexpanded instructions after this op and stays valid.
+  // The bounded re-check here can flip to Unknown (window landing differently
+  // after earlier expansions), so a folded operand MUST force the batched path
+  // -- the fallback reads the operand from a scratch slot the erased staging
+  // load never wrote.
+  if (Op1Fold.count(&MI) || Op2Fold.count(&MI))
+    CanBatch = true;
 
   if (CanBatch) {
     // Phase 1: load op1 into B, C, D, E (B = byte 0 = LSB).  Skipped when a
     // previous pseudo forwarded op1 into B/C/D/E.
     auto FwdIt = BCDEForwarded.find(&MI);
-    bool Forwarded = (FwdIt != BCDEForwarded.end() && FwdIt->second == operandOne);
+    bool Forwarded = (FwdIt != BCDEForwarded.end() &&
+                      FwdIt->second == operandOne && !Op1Fold.count(&MI));
     if (Forwarded)
       BCDEForwarded.erase(FwdIt);
     if (!Forwarded) {
-      emitScratchAddr(MBB, MBBI, operandOne, 0);
+      emitBatchedOperandAddr(MBB, MBBI, &MI, Op1Fold, operandOne);
       buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::B, RegState::Define);
       emitScratchAdvance(MBB, MBBI, 1);
       buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::C, RegState::Define);
@@ -1706,7 +1826,7 @@ template <> bool I8085ExpandPseudo32::expand<I8085::ADD_32>(Block &MBB, BlockIt 
 
     // Phase 2: add op2 into B/C/D/E with a carry chain (ADD then ADC*3).
     static const unsigned Regs[4] = {I8085::B, I8085::C, I8085::D, I8085::E};
-    emitScratchAddr(MBB, MBBI, operandTwo, 0);
+    emitBatchedOperandAddr(MBB, MBBI, &MI, Op2Fold, operandTwo);
     for (int i = 0; i < 4; ++i) {
       buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::A, RegState::Define).addReg(Regs[i]);
       buildMI(MBB, MBBI, i == 0 ? I8085::ADD_M : I8085::ADC_M);
