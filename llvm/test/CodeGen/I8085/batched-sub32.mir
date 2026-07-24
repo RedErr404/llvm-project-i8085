@@ -1,0 +1,71 @@
+# RUN: llc -run-pass=i8085-expand-pseudo32 %s -o - | FileCheck %s
+
+# SUB_32 gets a batched register-accumulator expansion (keep the minuend in
+# B/C/D/E, subtract op2 from memory a byte at a time) instead of the byte-in-
+# memory delta walk that bumps HL by the op1<->op2 slot delta every byte.  The
+# batched form must respect SUB_32's load-bearing CY-out contract (CY = 32-bit
+# borrow, consumed by CompareLowering):
+#   * dest dead (unsigned/signed compare): skip the store -> the last SBB's CY
+#     survives (INX/MOV in the chain preserve it).  This is also foldable.
+#   * SREG dead (equality compare / value subtraction): store the result; the
+#     store's DAD clobbers CY, but nothing reads it.
+#   * both live: fall back to the delta walk, which stores in place with no
+#     trailing DAD and so keeps result AND CY.
+# In -run-pass tests IAX byte0 = SP+0, IBX byte0 = SP+4.
+
+--- |
+  target triple = "i8085-unknown-elf"
+  define void @sub_dead_dest() { ret void }
+  define void @sub_sreg_dead() { ret void }
+  define void @sub_both_live() { ret void }
+...
+---
+# dead result, live CY: batched, NO result store, ends at the last SBB M so CY
+# reaches the following SBB A.  No delta-walk DCX, no store-back MOV M.
+name:            sub_dead_dest
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $iax, $ibx, $sreg
+    ; CHECK-LABEL: name: sub_dead_dest
+    ; CHECK: SUB_M
+    ; CHECK: SBB_M
+    ; CHECK: SBB_M
+    ; CHECK: SBB_M
+    ; CHECK-NEXT: SBB $a
+    ; CHECK-NOT: DCX
+    dead $iax = SUB_32 $iax, $ibx, implicit-def $sreg, implicit-def dead $a, implicit-def dead $hl
+    SBB $a, implicit-def dead $sreg, implicit-def $a, implicit $a, implicit killed $sreg
+    RET implicit $sp, implicit-def $sp, implicit $a
+...
+---
+# live result, dead CY: batched WITH a Phase-3 store; still no delta-walk DCX.
+name:            sub_sreg_dead
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $iax, $ibx
+    ; CHECK-LABEL: name: sub_sreg_dead
+    ; CHECK: SUB_M
+    ; CHECK: SBB_M
+    ; CHECK: MOV_M $b
+    ; CHECK-NOT: DCX
+    $iax = SUB_32 $iax, $ibx, implicit-def dead $sreg, implicit-def dead $a, implicit-def dead $hl
+    STORE_32_AT_OFFSET_WITH_SP $iax, 20, implicit $sp, implicit-def $a, implicit-def $hl
+    RET implicit $sp, implicit-def $sp
+...
+---
+# both result and CY live: delta walk (DCX present), which preserves both.
+name:            sub_both_live
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $iax, $ibx, $sreg
+    ; CHECK-LABEL: name: sub_both_live
+    ; CHECK: SUB_M
+    ; CHECK: DCX
+    $iax = SUB_32 $iax, $ibx, implicit-def $sreg, implicit-def dead $a, implicit-def dead $hl
+    SBB $a, implicit-def dead $sreg, implicit-def $a, implicit $a, implicit killed $sreg
+    STORE_32_AT_OFFSET_WITH_SP $iax, 20, implicit $sp, implicit-def $a, implicit-def $hl
+    RET implicit $sp, implicit-def $sp, implicit $a
+...

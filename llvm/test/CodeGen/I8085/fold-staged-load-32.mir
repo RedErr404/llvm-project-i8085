@@ -80,8 +80,10 @@ body:             |
 ...
 
 ---
-# SUB_32 uses the delta-walk (op2 at a fixed slot delta), not a batched path:
-# never fold (excluded) -- the staging load stays.
+# SUB_32 with BOTH its result and CY live must keep the delta-walk (it preserves
+# both), so it is not batched and its op2 is not folded -- the staging load
+# stays.  (A compare SUB with a dead result or dead SREG does batch and fold;
+# see batched-sub32.mir.)
 name:            sub32_no_fold
 tracksRegLiveness: true
 body:             |

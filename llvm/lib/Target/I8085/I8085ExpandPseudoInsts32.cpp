@@ -634,9 +634,26 @@ void I8085ExpandPseudo32::foldStagedLoads(Block &MBB) {
   if (!HaveScratch)
     return;
 
-  auto IsBatchedALU = [](unsigned Opc) {
-    return Opc == I8085::XOR_32 || Opc == I8085::OR_32 ||
-           Opc == I8085::AND_32 || Opc == I8085::ADD_32;
+  // True when MI's batched expansion reads its operands from independent
+  // addresses (so a folded operand can be redirected to SP+K).  SUB_32 only
+  // takes that path when it need not preserve CY through a store -- i.e. its
+  // result is dead (no store, CY survives) or its SREG def is dead (store may
+  // clobber CY, but nothing reads it); otherwise it uses the delta-walk that
+  // assumes op2 at a fixed slot delta and must not be folded.
+  auto FoldableBatchedALU = [](const MachineInstr &MI,
+                               const TargetRegisterInfo *TRI) {
+    switch (MI.getOpcode()) {
+    case I8085::XOR_32:
+    case I8085::OR_32:
+    case I8085::AND_32:
+    case I8085::ADD_32:
+      return true;
+    case I8085::SUB_32:
+      return MI.getOperand(0).isDead() ||
+             MI.registerDefIsDead(I8085::SREG, TRI);
+    default:
+      return false;
+    }
   };
 
   auto StagedLoadFor = [&](BlockIt MBBI, unsigned OpReg) -> MachineInstr * {
@@ -669,7 +686,7 @@ void I8085ExpandPseudo32::foldStagedLoads(Block &MBB) {
     Changed = false;
     for (auto MBBI = MBB.begin(); MBBI != MBB.end(); ++MBBI) {
       MachineInstr &MI = *MBBI;
-      if (!IsBatchedALU(MI.getOpcode()))
+      if (!FoldableBatchedALU(MI, TRI))
         continue;
       unsigned Dst = MI.getOperand(0).getReg();
       unsigned Op1 = MI.getOperand(1).getReg();
@@ -1914,8 +1931,88 @@ template <> bool I8085ExpandPseudo32::expand<I8085::SUB_32>(Block &MBB, BlockIt 
   MachineInstr &MI = *MBBI;
 
   unsigned destReg = MI.getOperand(0).getReg();
-  unsigned operandTwo = MI.getOperand(2).getReg();
+  unsigned operandOne = MI.getOperand(1).getReg();  // $src, the minuend
+  unsigned operandTwo = MI.getOperand(2).getReg();  // $rr, the subtrahend
 
+  bool destDead = MI.getOperand(0).isDead();
+  bool sregDead = MI.registerDefIsDead(I8085::SREG, TRI);
+
+  // Batched register-accumulator path (mirrors ADD_32): keep the minuend in
+  // B/C/D/E and subtract op2 from memory a byte at a time -- one memory access
+  // per op2 byte instead of the DCX*d/INX*d delta walk the byte-in-memory form
+  // below pays.  op2 is read from its own address (Phase 2), so it can be a
+  // folded stack operand.  Requires dest==op1 (the coalesced minuend/result)
+  // and B/C/D/E dead afterwards.
+  //
+  // CY CONTRACT: CompareLowering reads CY = 32-bit borrow after SUB_32.  The
+  // delta-walk preserves it (stores in place, no trailing DAD).  The batched
+  // form's Phase-3 store addresses dest with DAD, which clobbers CY, so it may
+  // only run when CY is not needed.  So the batched path is taken only when the
+  // result is dead (skip Phase 3 -> the last SBB's CY survives; INX/MOV in the
+  // chain preserve it) or SREG is dead (Phase 3's DAD clobbers CY, but nothing
+  // reads it).  When both are live the delta-walk keeps result AND CY.
+  auto AfterMI = std::next(MBBI);
+  bool CanBatch = (destReg == operandOne) && (destDead || sregDead);
+  if (CanBatch) {
+    for (MCRegister Reg : {I8085::B, I8085::C, I8085::D, I8085::E}) {
+      if (MBB.computeRegisterLiveness(TRI, Reg, AfterMI, 20) !=
+          MachineBasicBlock::LQR_Dead) {
+        CanBatch = false;
+        break;
+      }
+    }
+  }
+  // A folded operand forces the batched path (see ADD_32): folds are recorded
+  // only on proven-dead B/C/D/E and only when destDead||sregDead holds.
+  if (Op1Fold.count(&MI) || Op2Fold.count(&MI))
+    CanBatch = true;
+
+  if (CanBatch) {
+    static const unsigned Regs[4] = {I8085::B, I8085::C, I8085::D, I8085::E};
+    // Phase 1: load op1 (minuend) into B/C/D/E.
+    emitBatchedOperandAddr(MBB, MBBI, &MI, Op1Fold, operandOne);
+    buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::B, RegState::Define);
+    emitScratchAdvance(MBB, MBBI, 1);
+    buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::C, RegState::Define);
+    emitScratchAdvance(MBB, MBBI, 1);
+    buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::D, RegState::Define);
+    emitScratchAdvance(MBB, MBBI, 1);
+    buildMI(MBB, MBBI, I8085::MOV_FROM_M).addReg(I8085::E, RegState::Define);
+
+    // Phase 2: subtract op2 with a borrow chain (SUB then SBB*3).  INX and MOV
+    // preserve CY.  The result byte is written back to B/C/D/E only when it is
+    // needed (dest live); the final SBB leaves CY = the 32-bit borrow.
+    emitBatchedOperandAddr(MBB, MBBI, &MI, Op2Fold, operandTwo);
+    for (int i = 0; i < 4; ++i) {
+      buildMI(MBB, MBBI, I8085::MOV).addReg(I8085::A, RegState::Define).addReg(Regs[i]);
+      buildMI(MBB, MBBI, i == 0 ? I8085::SUB_M : I8085::SBB_M);
+      if (!destDead)
+        buildMI(MBB, MBBI, I8085::MOV).addReg(Regs[i], RegState::Define).addReg(I8085::A);
+      if (i != 3)
+        emitScratchAdvance(MBB, MBBI, 1);
+    }
+
+    // Phase 3: store the result to dest only when it is live (this clobbers CY
+    // via DAD, so it never runs when CY is needed -- destDead is false here
+    // implies sregDead).
+    if (!destDead) {
+      emitScratchAddr(MBB, MBBI, destReg, 0);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::B);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::C);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::D);
+      emitScratchAdvance(MBB, MBBI, 1);
+      buildMI(MBB, MBBI, I8085::MOV_M).addReg(I8085::E);
+    }
+
+    MI.eraseFromParent();
+    return true;
+  }
+
+  // Fallback: byte-in-memory delta-walk.  Reads the minuend from dest's slot
+  // (dest==op1 after coalescing), walks to op2 and back, storing in place so
+  // the final SBB's CY survives with no trailing DAD.
   int baseOne = (destReg == I8085::IBX) ? 4 : 0;
   int baseTwo = (operandTwo == I8085::IBX) ? 4 : 0;
   int delta = baseTwo - baseOne;
