@@ -3870,6 +3870,18 @@ I8085TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   return DAG.getNode(RetOpc, dl, MVT::Other, RetOps);
 }
 
+static unsigned computeFrameSizeAt(MachineBasicBlock &MBB,
+                                   MachineBasicBlock::iterator MBBI) {
+  int64_t FrameSize = MBB.getCallFrameSize();
+  for (auto I = MBB.begin(); I != MBBI; ++I) {
+    if (I->getOpcode() == I8085::ADJCALLSTACKDOWN)
+      FrameSize += I->getOperand(0).getImm();
+    else if (I->getOpcode() == I8085::ADJCALLSTACKUP)
+      FrameSize -= I->getOperand(0).getImm();
+  }
+  return static_cast<unsigned>(FrameSize);
+}
+
 MachineBasicBlock *I8085TargetLowering::insertShiftSet(MachineInstr &MI,
                                                   MachineBasicBlock *MBB) const {
 
@@ -3902,6 +3914,11 @@ MachineBasicBlock *I8085TargetLowering::insertShiftSet(MachineInstr &MI,
   MachineBasicBlock *continuationMBB = MF->CreateMachineBasicBlock(LLVM_BB);
   MachineBasicBlock *shiftLoopMBB = MF->CreateMachineBasicBlock(LLVM_BB);
   MachineBasicBlock *checkMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+
+  const unsigned SplitFrameSize = computeFrameSizeAt(*MBB, MI.getIterator());
+  continuationMBB->setCallFrameSize(SplitFrameSize);
+  shiftLoopMBB->setCallFrameSize(SplitFrameSize);
+  checkMBB->setCallFrameSize(SplitFrameSize);
 
   MachineFunction::iterator I;
   for (I = MF->begin(); I != MF->end() && &(*I) != MBB; ++I)
@@ -4035,6 +4052,10 @@ static MachineBasicBlock *insertSelectPseudo(MachineInstr &MI,
 
   MachineBasicBlock *trueMBB = MF->CreateMachineBasicBlock(LLVM_BB);
   MachineBasicBlock *falseMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+
+  const unsigned SplitFrameSize = computeFrameSizeAt(*MBB, MI.getIterator());
+  trueMBB->setCallFrameSize(SplitFrameSize);
+  falseMBB->setCallFrameSize(SplitFrameSize);
 
   MachineFunction::iterator I;
   for (I = MF->begin(); I != MF->end() && &(*I) != MBB; ++I)

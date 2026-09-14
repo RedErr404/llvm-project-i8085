@@ -823,6 +823,7 @@ bool I8085ExpandPseudo::expand<I8085::CALL_INDIRECT>(Block &MBB, BlockIt MBBI) {
   MachineBasicBlock *ReturnMBB = MF->CreateMachineBasicBlock(LLVMBB);
   auto InsertPos = std::next(MBB.getIterator());
   MF->insert(InsertPos, ReturnMBB);
+  ReturnMBB->setLabelMustBeEmitted();
   // Renumber ALL blocks to avoid conflicts with existing block numbers.
   MF->RenumberBlocks();
 
